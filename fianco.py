@@ -62,7 +62,7 @@ def can_capt(ply: int, brd: Mat) -> bool:
     return False
 
 
-def can_move(ply: int, brd: Mat) -> bool:
+def can_step(ply: int, brd: Mat) -> bool:
     K = 1
     h, w = brd.shape[1:]
     slf = np.empty((h + 2 * K, w + 2 * K), dtype=brd.dtype)
@@ -71,8 +71,8 @@ def can_move(ply: int, brd: Mat) -> bool:
     blit(K, K, brd[1 - ply], lmt0)
     blit(K, K, brd[ply], lmt1)
     lmt = lmt0 | lmt1
-    oth = np.zeros((h + 2 * K, w + 2 * K), dtype=brd.dtype)
-    blit(K, K, brd[1 - ply], oth)
+    '''oth = np.zeros((h + 2 * K, w + 2 * K), dtype=brd.dtype)
+    blit(K, K, brd[1 - ply], oth)'''
     for dy, dx in [(0, -1), (vdir(ply), 0), (0, +1)]:
         slf.fill(0)
         blit(K + dy, K + dx, brd[ply], slf)
@@ -124,29 +124,27 @@ def to_msk(fr: YX, to: YX | None, brd: Mat) -> Mat:
 
 
 def play(ply: int, fr: YX, to: YX, brd: Mat, in_place: bool = False) -> tuple[bool, Mat]:
-    assert np.sum(brd[ply] & brd[1 - ply]) == 0, f'players cannot overlap - {np.sum(brd[ply] & brd[1 - ply])} overlaps'
-    assert inbound(fr, brd.shape[1:]), f'`from` must be inside the board - is at {fr}'
-    assert inbound(to, brd.shape[1:]), f'`to` must be inside the board - is at {to}'
-    brd = brd if in_place else np.copy(brd)
-    if can_capt(ply, brd):
-        if is_capt(ply, fr, to, brd):
-            at = fr + (to - fr) // 2
-            capt(ply, to_msk(at, None, brd), brd)
-            # NOTE: The fact that the line bellow repeats twice makes me crazy.
-            # Sometime I will fix this disgrace!
+    if all((np.sum(brd[ply] & brd[1 - ply]) == 0, inbound(fr, brd.shape[1:]), inbound(to, brd.shape[1:]))):
+        brd = brd if in_place else np.copy(brd)
+        if can_capt(ply, brd):
+            if is_capt(ply, fr, to, brd):
+                at = fr + (to - fr) // 2
+                capt(ply, to_msk(at, None, brd), brd)
+                # NOTE: The fact that the line bellow repeats twice makes me crazy.
+                # Sometime I will fix this disgrace!
+                move(ply, to_msk(fr, to, brd), brd)
+                return True, brd
+        elif is_step(ply, fr, to, brd):
+            # NOTE: Yeah, this line is the same as above. Emotional damage!
             move(ply, to_msk(fr, to, brd), brd)
             return True, brd
-    elif is_step(ply, fr, to, brd):
-        # NOTE: Yeah, this line is the same as above. Emotional damage!
-        move(ply, to_msk(fr, to, brd), brd)
-        return True, brd
     return False, brd
 
 
-def win(ply: int, msk: Mat, brd: Mat) -> bool:
-    goal = lambda: np.any(brd[ply] & msk[1 - ply])
+def win(ply: int, end: Mat, brd: Mat) -> bool:
+    goal = lambda: np.any(brd[ply] & end[1 - ply])
     dead = lambda: np.all(~brd[1 - ply])
-    cant = lambda: not can_move(1 - ply, brd)
+    cant = lambda: not can_step(1 - ply, brd) and not can_capt(1 - ply, brd)
     if goal() or dead() or cant():
         return True
     return False

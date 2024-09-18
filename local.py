@@ -2,7 +2,9 @@
 from itertools import product
 from dataclasses import dataclass, field
 from collections import deque
+from time import time
 from fianco import *
+from auto import *
 
 import numpy as np
 import pygame as pyg
@@ -12,8 +14,8 @@ import pygame as pyg
 class GameState:
     run: bool = field(default_factory=lambda: True)
     ply: int = field(default_factory=lambda: 1)
-    brd: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\blue.png'))
-    msk: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\goal.png'))
+    brd: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\brd.png'))
+    end: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\end.png'))
     vrts: deque[YX] = field(default_factory=deque)
     hist: deque[tuple[int, Mat]] = field(default_factory=deque)
     disp: pyg.Surface = field(default_factory=lambda: pyg.display.set_mode(((wth := 640), wth)))
@@ -30,6 +32,10 @@ def mod2txt(*vrts: YX) -> str:
     if len(vrts) >= 2:
         substr = f"{substr} to {vrts[1] + 1}"
     return substr
+
+
+def done(gmst: GameState) -> bool:
+    return any(win(i, gmst.end, gmst.brd) for i in (0, 1))
 
 
 def paint(cur_yx: YX, gmst: GameState) -> tuple[int, int]:
@@ -55,8 +61,10 @@ def paint(cur_yx: YX, gmst: GameState) -> tuple[int, int]:
         to_y, to_x = cur_yx
         pyg.draw.line(gmst.disp, (0, 0, 0), (fr_x * clx + clx // 2, fr_y * cly + cly // 2), (to_x * clx + clx // 2, to_y * cly + cly // 2), 1)
         caption = f'{ply2txt(gmst.ply)} | {mod2txt(fr_yx, cur_yx)}'
-    else:
+    elif not done(gmst):
         caption = f'{ply2txt(gmst.ply)} | {mod2txt(cur_yx)}'
+    else:
+        caption = f'Finished! {ply2txt(0 if win(0, gmst.end, gmst.brd) else 1)} wins!'
     pyg.display.set_caption(caption)
     pyg.display.flip()
     return cly, clx
@@ -89,31 +97,38 @@ def main():
                             if gmst.hist:
                                 gmst.ply, gmst.brd = gmst.hist.pop()
                                 gmst.vrts.clear()
-                    elif ev.key == pyg.K_x:
+                                print(f'[GAME] undo')
+                    elif ev.key == pyg.K_x and not done(gmst):
                         kmods = pyg.key.get_mods()
                         if kmods & pyg.KMOD_CTRL:
-                            # call AI here!
-                            # append to gmst.vrts
-                            pass
-                elif ev.type == pyg.MOUSEBUTTONDOWN:
+                            t0 = time()
+                            fr_yx, to_yx = decide((gmst.ply, gmst.end, gmst.brd), dpth=3)
+                            t1 = time()
+                            print(f'[DEBUG] from {fr_yx} to {to_yx} in {t1 - t0} secs')
+                            gmst.vrts.extend((fr_yx, to_yx))
+                elif ev.type == pyg.MOUSEBUTTONDOWN and not done(gmst):
                     if ev.button == pyg.BUTTON_RIGHT:
                         gmst.vrts.clear()
                     elif ev.button == pyg.BUTTON_LEFT:
                         cur_y, cur_x = cur_yx
                         if gmst.brd[gmst.ply, cur_y, cur_x] == True or (len(gmst.vrts) == 1 and gmst.brd[~gmst.ply, cur_y, cur_x] == False):
                             gmst.vrts.append(cur_yx)
-            cnd = all(not win(i, gmst.msk, gmst.brd) for i in (0, 1))
-            if len(gmst.vrts) == 2 and cnd:
+            if len(gmst.vrts) == 2 and not done(gmst):
                 fr_yx, to_yx = gmst.vrts
                 gmst.vrts.clear()
                 old = gmst.brd
                 ok, gmst.brd = play(gmst.ply, fr_yx, to_yx, gmst.brd)
                 if ok:
+                    print(f'[DEBUG] score={mdist((gmst.ply, gmst.end, gmst.brd))}')
                     gmst.hist.append((gmst.ply, old))
                     gmst.ply = 1 - gmst.ply
-            if not cnd:
-                gmst.vrts.clear()
+
+                    if done(gmst):
+                        n = np.argmax([win(i, gmst.end, gmst.brd) for i in (0, 1)])
+                        print(f'[GAME] {ply2txt((0, 1)[n])} wins!')
     finally:
         pyg.quit()
 
-main()
+
+if __name__ == '__main__':
+    main()
