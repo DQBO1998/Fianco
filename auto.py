@@ -56,6 +56,7 @@ def steps(ply: int, brd: Mat) -> Iterable[tuple[YX, YX]]:
 
 
 class BaseAI:
+    nc: int
 
     @classmethod
     def terminal(cls, lst: Engine) -> bool:
@@ -69,6 +70,7 @@ class BaseAI:
 
     @classmethod
     def αβ_search(cls, wrt: int, lst: Engine, dpth: int, αβ: tuple[float, float]) -> float:
+        cls.nc += 1
         print(f"[LOG] searching at depth {dpth} with {αβ} - player {lst.ply}'s turn")
         if dpth <= 0 or cls.terminal(lst):
             return cls.evaluate(wrt, lst)
@@ -88,6 +90,7 @@ class BaseAI:
     
     @classmethod
     def think(cls, lst: Engine, dpth: int = 3, αβ: tuple[float, float] = (-inf, +inf)) -> Union[tuple[YX, YX], None]:
+        cls.nc = 0
         if cls.terminal(lst):
             return None
         wrt = lst.ply

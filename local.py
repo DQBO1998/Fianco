@@ -99,6 +99,9 @@ def main():
                             t0 = time()
                             frto = BaseAI.think(gmst.game, 3)
                             t1 = time()
+                            print(f'Δ = {t1 - t0}, N = {BaseAI.nc}')
+                            print(f'N/s = {BaseAI.nc / (t1 - t0)}')
+                            print('===')
                             if frto is not None:
                                 gmst.vrts.extend(frto)
                 elif ev.type == pyg.MOUSEBUTTONDOWN:
