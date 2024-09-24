@@ -97,8 +97,11 @@ def main():
                         kmods = pyg.key.get_mods()
                         if kmods & pyg.KMOD_CTRL:
                             t0 = time()
-                            frto = BaseAI.think(gmst.game, 3)
+                            frto = BaseAI.think(gmst.game, 5)
                             t1 = time()
+                            print(f'Δ = {t1 - t0}, N = {BaseAI.nc}')
+                            print(f'N/s = {BaseAI.nc / (t1 - t0)}')
+                            print('===')
                             if frto is not None:
                                 gmst.vrts.extend(frto)
                 elif ev.type == pyg.MOUSEBUTTONDOWN:
