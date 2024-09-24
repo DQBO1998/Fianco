@@ -2,6 +2,7 @@
 from collections.abc import Iterable
 from math import inf
 from itertools import chain
+from typing import Union
 from fianco import *
 from copy import deepcopy
 
@@ -86,13 +87,13 @@ class BaseAI:
         return scr
     
     @classmethod
-    def think(cls, lst: Engine, dpth: int = 3, αβ: tuple[float, float] = (-inf, +inf)) -> tuple[YX, YX] | None:
+    def think(cls, lst: Engine, dpth: int = 3, αβ: tuple[float, float] = (-inf, +inf)) -> Union[tuple[YX, YX], None]:
         if cls.terminal(lst):
             return None
         wrt = lst.ply
         lst = deepcopy(lst)
         α, β = αβ
-        out: tuple[YX, YX] | None = None
+        out: Union[tuple[YX, YX], None] = None
         scr = -inf
         for frto in chain(capts(lst.ply, lst.brd), steps(lst.ply, lst.brd)):
             assert lst.play(*frto), f'move unsuccessful - tried {frto}'

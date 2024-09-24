@@ -82,6 +82,7 @@ def main():
         while gmst.run:
             assert 0 <= len(gmst.vrts) <= 2, f'yo, why are you moving {len(gmst.vrts)} steps in one turn?!'
             cur_yx = cursor_at(*paint(cur_yx, gmst))
+            print(cur_yx)
             clock.tick(60)
             for ev in pyg.event.get():
                 if ev.type == pyg.QUIT:

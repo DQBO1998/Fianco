@@ -2,7 +2,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from itertools import product
 from numpy import typing as npy
-from typing import TypeAlias
+from typing_extensions import TypeAlias
+from typing import Union
 from PIL import Image as Img
 
 import numpy as np
@@ -115,7 +116,7 @@ def inbound(yx: YX, lmt: tuple[int, ...]) -> bool:
     return 0 <= y < lmt_y and 0 <= x < lmt_x
 
 
-def to_msk(fr: YX, to: YX | None, brd: Mat) -> Mat:
+def to_msk(fr: YX, to: Union[YX, None], brd: Mat) -> Mat:
     out = np.zeros_like(brd[0])
     fr_y, fr_x = fr
     out[fr_y, fr_x] = True
@@ -172,10 +173,10 @@ class Engine:
     brd: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\brd.png'))
     end: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\end.png'))
     in_place: bool = True
-    hst: deque[tuple[YX, YX | None, YX]] = deque()
+    hst: deque[tuple[YX, Union[YX, None], YX]] = deque()
 
     @property
-    def winner(self) -> int | None:
+    def winner(self) -> Union[int, None]:
         for i in (0, 1):
             if win(i, self.end, self.brd):
                 return i
