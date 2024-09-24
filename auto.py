@@ -28,8 +28,8 @@ def capts(ply: int, brd: Mat) -> Iterable[tuple[YX, YX]]:
             blit(K + dy, K + dx, cap, slf)
             lnd = (slf & ~lmt)[K:-K, K:-K]
             if np.any(lnd):
-                to = np.stack(np.nonzero(lnd), axis=0, dtype=np.int8).swapaxes(0, 1)
-                fr = to - 2 * np.stack((dy, dx), axis=0, dtype=np.int8)
+                to = np.stack(np.nonzero(lnd), axis=0, dtype=INT).swapaxes(0, 1)
+                fr = to - 2 * np.stack((dy, dx), axis=0, dtype=INT)
                 for n in range(to.shape[0]):
                     yield fr[n], to[n]
 
@@ -49,8 +49,8 @@ def steps(ply: int, brd: Mat) -> Iterable[tuple[YX, YX]]:
             blit(K + dy, K + dx, brd[ply], slf)
             lnd = (slf & ~lmt)[K:-K, K:-K]
             if np.any(lnd):
-                to = np.stack(np.nonzero(lnd), axis=0, dtype=np.int8).swapaxes(0, 1)
-                fr = to - np.stack((dy, dx), axis=0, dtype=np.int8)
+                to = np.stack(np.nonzero(lnd), axis=0, dtype=INT).swapaxes(0, 1)
+                fr = to - np.stack((dy, dx), axis=0, dtype=INT)
                 for n in range(to.shape[0]):
                     yield fr[n], to[n]
 

@@ -10,7 +10,8 @@ import numpy as np
 
 
 Mat: TypeAlias = npy.NDArray[np.bool_]
-YX: TypeAlias = npy.NDArray[np.int8]
+INT: TypeAlias = np.int16
+YX: TypeAlias = npy.NDArray[INT]
 
 
 def blit(y: int, x: int, fr: Mat, to: Mat) -> None:

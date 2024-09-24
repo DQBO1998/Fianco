@@ -69,7 +69,7 @@ def paint(cur_yx: YX, gmst: GameState) -> tuple[int, int]:
 
 def cursor_at(cly: int, clx: int) -> YX:
     x, y = pyg.mouse.get_pos()
-    return np.array((int(y / cly), int(x / clx)), np.int8)
+    return np.array((int(y / cly), int(x / clx)), INT)
 
 
 def main():
@@ -77,12 +77,11 @@ def main():
     try:
         gmst = GameState()
         clock = pyg.time.Clock()
-        cur_yx = np.array((0, 0), np.int8)
+        cur_yx = np.array((0, 0), INT)
         print(f'score: {BaseAI.evaluate(0, gmst.game)} - {BaseAI.evaluate(1, gmst.game)}\n')
         while gmst.run:
             assert 0 <= len(gmst.vrts) <= 2, f'yo, why are you moving {len(gmst.vrts)} steps in one turn?!'
             cur_yx = cursor_at(*paint(cur_yx, gmst))
-            print(cur_yx)
             clock.tick(60)
             for ev in pyg.event.get():
                 if ev.type == pyg.QUIT:
