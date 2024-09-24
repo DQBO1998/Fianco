@@ -1,17 +1,9 @@
 
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from math import inf
 from itertools import chain
-from random import Random
-from typing import Any
 from fianco import *
-
-
-rnd = Random(42)
-
-
-State: TypeAlias = tuple[int, Mat, Mat]
-Evalf: TypeAlias = Callable[[State, tuple[Any, ...]], float]
+from copy import deepcopy
 
 
 def capts(ply: int, brd: Mat) -> Iterable[tuple[YX, YX]]:
@@ -62,82 +54,53 @@ def steps(ply: int, brd: Mat) -> Iterable[tuple[YX, YX]]:
                     yield fr[n], to[n]
 
 
-class IllegalMove(Exception):
-    pass
+class BaseAI:
 
+    @classmethod
+    def terminal(cls, lst: Engine) -> bool:
+        return lst.winner is not None
 
-def ft2brd(ply: int, brd: Mat, frto: tuple[YX, YX]) -> Mat:
-    ok, nxt = play(ply, *frto, brd)
-    if not ok:
-        raise IllegalMove(f'going from {frto[0]} to {frto[1]} in \n{brd}\nis illegal, resulting in \n{nxt}\n')
-    return nxt 
+    @classmethod
+    def evaluate(cls, wrt: int, lst: Engine) -> float:
+        if lst.winner is not None:
+            return (lst.winner == wrt) - (lst.winner != wrt)
+        return (lst.brd[wrt].sum() - lst.brd[1 - wrt].sum()) / 15.
 
-
-def terminal(lst: tuple[int, Mat, Mat]) -> bool:
-    _, end, brd = lst
-    return any((win(ply, end, brd) for ply in (0, 1)))
-
-
-def simulate(lst: tuple[int, Mat, Mat]) -> float:
-    ply, end, brd = lst
-    org = ply
-    while not terminal(lst):
-        frto = rnd.choice(tuple(chain(capts(ply, brd), steps(ply, brd))))
-        brd = ft2brd(ply, brd, frto)
-        ply = 1 - ply
-    return win(org, end, brd)
-
-
-def mcsim(lst: tuple[int, Mat, Mat], n_trials: int) -> float:
-    res = np.array([simulate(lst) for _ in range(n_trials)], dtype=np.float16)
-    return res.mean()
-
-
-def mdist(lst: tuple[int, Mat, Mat]) -> float:
-    ply, _, brd = lst
-    top0 = 
-    mat = brd[0]
-    if ply == 1:
-        mat = np.flip(brd[ply], axis=0)
-    ys, _ = np.nonzero(mat)
-    return ys.max() / brd.shape[1]
-
-
-def αβ_search(lst: tuple[int, Mat, Mat], evalf: tuple[Any, ...], dpth: int, αβ: tuple[float, float]) -> float:
-    if dpth <= 0 or terminal(lst):
-        fn, *args = evalf
-        return fn(lst, *args)
-    α, β = αβ
-    ply, end, brd = lst
-    scr = -inf
-    for frto in chain(capts(ply, brd), steps(ply, brd)):
-        nxt = ft2brd(ply, brd, frto)
-        val = -αβ_search((1 - ply, end, nxt), evalf, dpth - 1, (-β, -α))
-        if val > scr:
-            scr = val
-        if scr > α:
-            α = scr
-        if scr >= β:
-            break
-    return scr
-
-
-def mk_nxt(lst: tuple[int, Mat, Mat], 
-           evalf: tuple[Any, ...],
-           frto: tuple[YX, YX],
-           dpth: int, αβ: tuple[float, float]) -> tuple[float, tuple[YX, YX]]:
-    α, β = αβ
-    ply, end, brd = lst
-    nxt = ft2brd(ply, brd, frto)
-    val = -αβ_search((1 - ply, end, nxt), evalf, dpth - 1, (-β, -α))
-    return val, frto
-
-
-def decide(lst: tuple[int, Mat, Mat], 
-           evalf: tuple[Any, ...] = (mdist,),
-           dpth: int = 3, αβ: tuple[float, float] = (-inf, inf)) -> tuple[YX, YX]:
-    ply, _, brd = lst
-    nxts = (mk_nxt(lst, evalf, frto, dpth, αβ) for frto in chain(capts(ply, brd), steps(ply, brd)))
-    _, frto = max(tuple(nxts), key=lambda vn: vn[0])
-    return frto
+    @classmethod
+    def αβ_search(cls, wrt: int, lst: Engine, dpth: int, αβ: tuple[float, float]) -> float:
+        print(f"[LOG] searching at depth {dpth} with {αβ} - player {lst.ply}'s turn")
+        if dpth <= 0 or cls.terminal(lst):
+            return cls.evaluate(wrt, lst)
+        α, β = αβ
+        scr = -inf
+        for frto in chain(capts(lst.ply, lst.brd), steps(lst.ply, lst.brd)):
+            assert lst.play(*frto), f'move unsuccessful - tried {frto}'
+            val = -cls.αβ_search(wrt, lst, dpth - 1, (-β, -α))
+            lst.undo()
+            if val > scr:
+                scr = val
+            if scr > α:
+                α = scr
+            if scr >= β:
+                break
+        return scr
+    
+    @classmethod
+    def think(cls, lst: Engine, dpth: int = 3, αβ: tuple[float, float] = (-inf, +inf)) -> tuple[YX, YX] | None:
+        if cls.terminal(lst):
+            return None
+        wrt = lst.ply
+        lst = deepcopy(lst)
+        α, β = αβ
+        out: tuple[YX, YX] | None = None
+        scr = -inf
+        for frto in chain(capts(lst.ply, lst.brd), steps(lst.ply, lst.brd)):
+            assert lst.play(*frto), f'move unsuccessful - tried {frto}'
+            val = -cls.αβ_search(wrt, lst, dpth - 1, (-β, -α))
+            lst.undo()
+            if val > scr:
+                scr = val
+                out = frto
+        assert out is not None
+        return out
     
