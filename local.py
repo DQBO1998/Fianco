@@ -69,7 +69,7 @@ def paint(cur_yx: YX, gmst: GameState) -> tuple[int, int]:
 
 def cursor_at(cly: int, clx: int) -> YX:
     x, y = pyg.mouse.get_pos()
-    return np.array((int(y / cly), int(x / clx)), np.int8)
+    return np.array((int(y / cly), int(x / clx)), number)
 
 
 def main():
@@ -77,8 +77,8 @@ def main():
     try:
         gmst = GameState()
         clock = pyg.time.Clock()
-        cur_yx = np.array((0, 0), np.int8)
-        print(f'score: {BaseAI.evaluate(0, gmst.game)} - {BaseAI.evaluate(1, gmst.game)}\n')
+        cur_yx = np.array((0, 0), number)
+        #print(f'score: {BaseAI.evaluate(0, gmst.game)} - {BaseAI.evaluate(1, gmst.game)}\n')
         while gmst.run:
             assert 0 <= len(gmst.vrts) <= 2, f'yo, why are you moving {len(gmst.vrts)} steps in one turn?!'
             cur_yx = cursor_at(*paint(cur_yx, gmst))
@@ -97,10 +97,10 @@ def main():
                         kmods = pyg.key.get_mods()
                         if kmods & pyg.KMOD_CTRL:
                             t0 = time()
-                            frto = BaseAI.think(gmst.game, 5)
+                            nc, frto = think(gmst.game, 7)
                             t1 = time()
-                            print(f'Δ = {t1 - t0}, N = {BaseAI.nc}')
-                            print(f'N/s = {BaseAI.nc / (t1 - t0)}')
+                            print(f'Δ = {t1 - t0}, N = {nc}')
+                            print(f'N/s = {nc / (t1 - t0)}')
                             print('===')
                             if frto is not None:
                                 gmst.vrts.extend(frto)
@@ -113,7 +113,7 @@ def main():
                 fr_yx, to_yx = gmst.vrts
                 gmst.vrts.clear()
                 gmst.game.play(fr_yx, to_yx)
-                print(f'score: {BaseAI.evaluate(0, gmst.game)} - {BaseAI.evaluate(1, gmst.game)}\n')
+                #print(f'score: {BaseAI.evaluate(0, gmst.game)} - {BaseAI.evaluate(1, gmst.game)}\n')
     finally:
         pyg.quit()
 
