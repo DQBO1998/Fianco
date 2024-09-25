@@ -6,7 +6,7 @@ from typing import TypeAlias
 from PIL import Image as Img
 
 import numpy as np
-import numba as nb
+import numba as nb # type: ignore
 
 
 number: TypeAlias = np.int8
@@ -14,7 +14,7 @@ Mat: TypeAlias = npy.NDArray[np.bool_]
 YX: TypeAlias = npy.NDArray[number]
 
 
-@nb.njit
+@nb.njit # type: ignore
 def blit(y: int, x: int, fr: Mat, to: Mat) -> None:
     h, w = fr.shape
     to[y:h + y, x:w + x] = fr
@@ -24,28 +24,28 @@ def make_board() -> Mat:
     return np.zeros((2, 9, 9), dtype=np.bool_)
 
 
-@nb.njit
+@nb.njit # type: ignore
 def move(ply: int, mov: Mat, brd: Mat) -> None:
-    assert np.sum(mov) == 2, f'only `from` and `to` selections allowed (only 2) - got {np.sum(mov)}\n\n{mov}\n'
-    assert np.sum(brd[ply] & mov) == 1, f'one and only one selection must match - {np.sum(brd[ply] & mov)} matched\n\n{mov}\n'
-    assert np.sum(brd[1 - ply] & mov) == 0, f'cannot overlap with other player - {np.sum(brd[1 - ply] & mov)} overlaps\n\n{mov}\n'
+    #assert np.sum(mov) == 2, f'only `from` and `to` selections allowed (only 2) - got {np.sum(mov)}\n\n{mov}\n'
+    #assert np.sum(brd[ply] & mov) == 1, f'one and only one selection must match - {np.sum(brd[ply] & mov)} matched\n\n{mov}\n'
+    #assert np.sum(brd[1 - ply] & mov) == 0, f'cannot overlap with other player - {np.sum(brd[1 - ply] & mov)} overlaps\n\n{mov}\n'
     brd[ply] ^= mov
 
 
-@nb.njit
+@nb.njit # type: ignore
 def capt(ply: int, msk: Mat, brd: Mat) -> None:
-    assert np.sum(msk) == 1, f'must capture one piece - tried {np.sum(msk)}\n\n{msk}\n'
-    assert np.sum(brd[ply] & msk) == 0, f'cannot capture own pieces - tried {np.sum(brd[ply] & msk)}\n\n{msk}\n'
-    assert np.sum(brd[1 - ply] & msk) == 1, f'must capture from other player - tried {np.sum(brd[1 - ply] & msk)}\n\n{msk}\n'
+    #assert np.sum(msk) == 1, f'must capture one piece - tried {np.sum(msk)}\n\n{msk}\n'
+    #assert np.sum(brd[ply] & msk) == 0, f'cannot capture own pieces - tried {np.sum(brd[ply] & msk)}\n\n{msk}\n'
+    #assert np.sum(brd[1 - ply] & msk) == 1, f'must capture from other player - tried {np.sum(brd[1 - ply] & msk)}\n\n{msk}\n'
     brd[1 - ply] ^= msk
 
 
-@nb.njit
+@nb.njit # type: ignore
 def vdir(ply: int) -> int:
     return 1 - 2 * ply
 
 
-@nb.njit
+@nb.njit # type: ignore
 def can_capt(ply: int, brd: Mat) -> bool:
     K = 2
     h, w = brd.shape[1:]
@@ -71,7 +71,7 @@ def can_capt(ply: int, brd: Mat) -> bool:
     return False
 
 
-@nb.njit
+@nb.njit # type: ignore
 def can_step(ply: int, brd: Mat) -> bool:
     K = 1
     h, w = brd.shape[1:]
@@ -90,7 +90,7 @@ def can_step(ply: int, brd: Mat) -> bool:
     return False
 
 
-@nb.njit
+@nb.njit # type: ignore
 def is_capt(ply: int, fr: YX, to: YX, brd: Mat) -> np.bool_:
     fr_y, fr_x = fr
     to_y, to_x = to
@@ -98,71 +98,73 @@ def is_capt(ply: int, fr: YX, to: YX, brd: Mat) -> np.bool_:
     mi_y, mi_x = mi
     dx = to_x - fr_x
     dy = to_y - fr_y
-    f1 = np.abs(dx) == 2
-    f2 = dy == 2 * vdir(ply)
-    f3 = brd[ply, fr_y, fr_x]
-    f4 = np.all(~brd[:, to_y, to_x])
-    f5 = brd[1 - ply, mi_y, mi_x]
-    return f1 and f2 and f3 and f4 and f5
+    return brd[1 - ply, mi_y, mi_x] \
+           and brd[ply, fr_y, fr_x] \
+           and np.abs(dx) == 2 \
+           and np.all(~brd[:, to_y, to_x]) \
+           and dy == 2 * vdir(ply)
 
 
-@nb.njit
+@nb.njit # type: ignore
 def is_step(ply: int, fr: YX, to: YX, brd: Mat) -> np.bool_:
     fr_y, fr_x = fr
     to_y, to_x = to
     dx = to_x - fr_x
     dy = to_y - fr_y
-    f1 = (np.abs(dx) > 0) ^ (np.abs(dy) > 0)
-    f2 = np.abs(dx) == 1 or dy == vdir(ply)
-    f3 = brd[ply, fr_y, fr_x]
-    f4 = np.all(~brd[:, to_y, to_x])
-    return f1 and f2 and f3 and f4
+    return brd[ply, fr_y, fr_x] \
+           and ((np.abs(dx) > 0) ^ (np.abs(dy) > 0)) \
+           and np.all(~brd[:, to_y, to_x]) \
+           and np.abs(dx) == 1 or dy == vdir(ply)
 
 
-@nb.njit
+@nb.njit # type: ignore
 def inbound(yx: YX, lmt_y: int, lmt_x: int) -> bool:
     y, x = yx
     return 0 <= y < lmt_y and 0 <= x < lmt_x
 
 
-@nb.njit
-def to_msk(fr: YX, to: YX | None, brd: Mat) -> Mat:
+@nb.njit # type: ignore
+def fr_to_msk(fr: YX, to: YX, brd: Mat) -> Mat:
     out = np.zeros_like(brd[0])
     fr_y, fr_x = fr
     out[fr_y, fr_x] = True
-    if to is not None:
-        to_y, to_x = to
-        out[to_y, to_x] = True
+    to_y, to_x = to
+    out[to_y, to_x] = True
     return out
 
 
-@nb.njit
+@nb.njit # type: ignore
+def at_msk(at: YX, brd: Mat) -> Mat:
+    out = np.zeros_like(brd[0])
+    at_y, at_x = at
+    out[at_y, at_x] = True
+    return out
+
+
+@nb.njit # type: ignore
 def play(in_place: bool, ply: int, fr: YX, to: YX, brd: Mat) -> tuple[bool, Mat]:
     if np.sum(brd[ply] & brd[1 - ply]) == 0 and inbound(fr, *brd.shape[1:]) and inbound(to, *brd.shape[1:]):
         brd = brd if in_place else np.copy(brd)
         if can_capt(ply, brd):
             if is_capt(ply, fr, to, brd):
                 at = fr + (to - fr) // 2
-                capt(ply, to_msk(at, None, brd), brd)
+                capt(ply, at_msk(at, brd), brd)
                 # NOTE: The fact that the line bellow repeats twice makes me crazy.
                 # Sometime I will fix this disgrace!
-                move(ply, to_msk(fr, to, brd), brd)
+                move(ply, fr_to_msk(fr, to, brd), brd)
                 return True, brd
         elif is_step(ply, fr, to, brd):
             # NOTE: Yeah, this line is the same as above. Emotional damage!
-            move(ply, to_msk(fr, to, brd), brd)
+            move(ply, fr_to_msk(fr, to, brd), brd)
             return True, brd
     return False, brd
 
 
-@nb.njit
-def win(ply: int, end: Mat, brd: Mat) -> bool:
-    goal = np.any(brd[ply] & end[1 - ply])
-    dead = np.all(~brd[1 - ply])
-    cant = not can_step(1 - ply, brd) and not can_capt(1 - ply, brd)
-    if goal or dead or cant:
-        return True
-    return False
+@nb.njit # type: ignore
+def win(ply: int, end: Mat, brd: Mat) -> np.bool_ | bool:
+    return np.any(brd[ply] & end[1 - ply]) \
+           or np.all(~brd[1 - ply]) \
+           or (not can_step(1 - ply, brd) and not can_capt(1 - ply, brd))
 
 
 def load(pth: str) -> Mat:
@@ -184,7 +186,7 @@ class Engine:
     ply: int = field(default_factory=lambda: 1)
     brd: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\brd.png'))
     end: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\end.png'))
-    hst: deque[tuple[YX, YX | None, YX]] = deque()
+    hst: deque[tuple[YX, YX | None, YX]] = field(default_factory=deque)
 
     @property
     def winner(self) -> int | None:

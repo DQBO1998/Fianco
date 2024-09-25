@@ -53,9 +53,10 @@ def paint(cur_yx: YX, gmst: GameState) -> tuple[int, int]:
     # draw line
     caption = ''
     if len(gmst.vrts) == 1:
-        fr_yx = gmst.vrts[0].astype(dtype=np.int16)
-        fr_y, fr_x = fr_yx.astype(dtype=np.int16)
-        to_y, to_x = cur_yx.astype(dtype=np.int16)
+        fr_yx = gmst.vrts[0]
+        fr_y, fr_x = fr_yx.astype(np.int16)
+        to_y, to_x = cur_yx.astype(np.int16)
+        #print((fr_x * clx + clx // 2, fr_y * cly + cly // 2), (to_x * clx + clx // 2, to_y * cly + cly // 2))
         pyg.draw.line(gmst.disp, (0, 0, 0), (fr_x * clx + clx // 2, fr_y * cly + cly // 2), (to_x * clx + clx // 2, to_y * cly + cly // 2), 1)
         caption = f'{ply2txt(gmst.game.ply)} | {mod2txt(fr_yx, cur_yx)}'
     elif not done(gmst):
