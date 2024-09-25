@@ -1,12 +1,14 @@
 
-from collections.abc import Iterable
+from collections.abc import Generator
 from math import inf
-from itertools import chain
-from fianco import *
 from copy import deepcopy
+from fianco import *
+
+import numba as nb
 
 
-def capts(ply: int, brd: Mat) -> Iterable[tuple[YX, YX]]:
+@nb.njit
+def capts(ply: int, brd: Mat) -> Generator[tuple[YX, YX], None, None]:
     K = 2
     h, w = brd.shape[1:]
     slf = np.empty((h + 2 * K, w + 2 * K), dtype=brd.dtype)
@@ -27,13 +29,14 @@ def capts(ply: int, brd: Mat) -> Iterable[tuple[YX, YX]]:
             blit(K + dy, K + dx, cap, slf)
             lnd = (slf & ~lmt)[K:-K, K:-K]
             if np.any(lnd):
-                to = np.stack(np.nonzero(lnd), axis=0, dtype=np.int8).swapaxes(0, 1)
-                fr = to - 2 * np.stack((dy, dx), axis=0, dtype=np.int8)
+                to = np.swapaxes(np.stack(np.nonzero(lnd), axis=0), 0, 1)
+                fr = to - 2 * np.array((dy, dx), dtype=number)
                 for n in range(to.shape[0]):
                     yield fr[n], to[n]
 
 
-def steps(ply: int, brd: Mat) -> Iterable[tuple[YX, YX]]:
+@nb.njit
+def steps(ply: int, brd: Mat) -> Generator[tuple[YX, YX], None, None]:
     if not can_capt(ply, brd):
         K = 1
         h, w = brd.shape[1:]
@@ -48,62 +51,90 @@ def steps(ply: int, brd: Mat) -> Iterable[tuple[YX, YX]]:
             blit(K + dy, K + dx, brd[ply], slf)
             lnd = (slf & ~lmt)[K:-K, K:-K]
             if np.any(lnd):
-                to = np.stack(np.nonzero(lnd), axis=0, dtype=np.int8).swapaxes(0, 1)
-                fr = to - np.stack((dy, dx), axis=0, dtype=np.int8)
+                to = np.swapaxes(np.stack(np.nonzero(lnd), axis=0), 0, 1)
+                fr = to - np.array((dy, dx), dtype=number)
                 for n in range(to.shape[0]):
                     yield fr[n], to[n]
 
 
-class BaseAI:
-    nc: int = 0
+@nb.njit
+def capts_and_steps(ply: int, brd: Mat) -> Generator[tuple[YX, YX], None, None]:
+    for frto in capts(ply, brd):
+        yield frto
+    for frto in steps(ply, brd):
+        yield frto
 
-    @classmethod
-    def terminal(cls, lst: Engine) -> bool:
-        return lst.winner is not None
 
-    @classmethod
-    def evaluate(cls, wrt: int, lst: Engine) -> float:
-        if lst.winner is not None:
-            return (lst.winner == wrt) - (lst.winner != wrt)
-        return (lst.brd[wrt].sum() - lst.brd[1 - wrt].sum()) / 15.
+@nb.njit
+def terminal(lst: tuple[int, Mat, Mat]) -> bool:
+    _, end, brd = lst
+    w0 = win(0, end, brd)
+    w1 = win(1, end, brd)
+    return w0 or w1
 
-    @classmethod
-    def αβ_search(cls, wrt: int, lst: Engine, dpth: int, αβ: tuple[float, float]) -> float:
-        cls.nc += 1
-        #print(f"[LOG] searching at depth {dpth} with {αβ} - player {lst.ply}'s turn")
-        if dpth <= 0 or cls.terminal(lst):
-            return cls.evaluate(wrt, lst)
-        α, β = αβ
-        scr = -inf
-        for frto in chain(capts(lst.ply, lst.brd), steps(lst.ply, lst.brd)):
-            assert lst.play(*frto), f'move unsuccessful - tried {frto}'
-            val = -cls.αβ_search(wrt, lst, dpth - 1, (-β, -α))
-            lst.undo()
-            if val > scr:
-                scr = val
-            if scr > α:
-                α = scr
-            if scr >= β:
-                break
-        return scr
-    
-    @classmethod
-    def think(cls, lst: Engine, dpth: int = 3, αβ: tuple[float, float] = (-inf, +inf)) -> tuple[YX, YX] | None:
-        cls.nc = 0
-        if cls.terminal(lst):
-            return None
-        wrt = lst.ply
-        lst = deepcopy(lst)
-        α, β = αβ
-        out: tuple[YX, YX] | None = None
-        scr = -inf
-        for frto in chain(capts(lst.ply, lst.brd), steps(lst.ply, lst.brd)):
-            assert lst.play(*frto), f'move unsuccessful - tried {frto}'
-            val = -cls.αβ_search(wrt, lst, dpth - 1, (-β, -α))
-            lst.undo()
-            if val > scr:
-                scr = val
-                out = frto
-        assert out is not None
-        return out
+
+@nb.njit
+def evaluate(wrt: int, lst: tuple[int, Mat, Mat]) -> float:
+    _, end, brd = lst
+    w0 = win(0, end, brd)
+    w1 = win(1, end, brd)
+    if w0 or w1:
+        top = 0 if w0 else 1
+        return (top == wrt) - (top != wrt)
+    return (brd[wrt].sum() - brd[1 - wrt].sum()) / 15.
+
+
+@nb.njit
+def simulate(lst: tuple[int, Mat, Mat], fr: YX, to: YX) -> Mat:
+    ply, end, brd = lst
+    w0 = win(0, end, brd)
+    w1 = win(1, end, brd)
+    assert not w0 and not w1, f'bro, the game is over'
+    ok, nxt = play(ply, fr, to, brd, False)
+    assert ok, f'move unsuccessful - tried {fr, to}'
+    return nxt
+
+
+def αβ_search(wrt: int, lst: tuple[int, Mat, Mat], dpth: int, αβ: tuple[float, float]) -> tuple[int, float]:
+    ndc = 0
+    ply, end, brd = lst
+    if dpth <= 0 or terminal(lst):
+        return ndc, evaluate(wrt, lst)
+    α, β = αβ
+    scr = -inf
+    for (fr, to) in capts_and_steps(ply, brd):
+        add, val = αβ_search(wrt, (1 - ply, end, simulate(lst, fr, to)), dpth - 1, (-β, -α))
+        val = -val
+        ndc += add + 1
+        if val > scr:
+            scr = val
+        if scr > α:
+            α = scr
+        if scr >= β:
+            break
+    return ndc, scr
+
+
+def think(lst: Engine, dpth: int = 3, αβ: tuple[float, float] = (-inf, +inf)) -> tuple[int, tuple[YX, YX] | None]:
+    ndc = 0
+    lst = deepcopy(lst)
+    wrt = lst.ply
+    end = lst.end
+    brd = lst.brd
+    if terminal((wrt, end, brd)):
+        return ndc, None
+    α, β = αβ
+    out: tuple[YX, YX] | None = None
+    scr = -inf
+    for frto in capts_and_steps(wrt, brd):
+        assert lst.play(*frto), f'move unsuccessful - tried {frto}'
+        add, val = αβ_search(wrt, (wrt, end, brd), dpth - 1, (-β, -α))
+        val = -val
+        ndc += add + 1
+        lst.undo()
+        if val > scr:
+            scr = val
+            out = frto
+    assert out is not None
+    return ndc, out
     

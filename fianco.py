@@ -6,12 +6,15 @@ from typing import TypeAlias
 from PIL import Image as Img
 
 import numpy as np
+import numba as nb
 
 
+number: TypeAlias = np.int16
 Mat: TypeAlias = npy.NDArray[np.bool_]
-YX: TypeAlias = npy.NDArray[np.int8]
+YX: TypeAlias = npy.NDArray[number]
 
 
+@nb.njit
 def blit(y: int, x: int, fr: Mat, to: Mat) -> None:
     h, w = fr.shape
     to[y:h + y, x:w + x] = fr
@@ -21,6 +24,7 @@ def make_board() -> Mat:
     return np.zeros((2, 9, 9), dtype=np.bool_)
 
 
+@nb.njit
 def move(ply: int, mov: Mat, brd: Mat) -> None:
     assert np.sum(mov) == 2, f'only `from` and `to` selections allowed (only 2) - got {np.sum(mov)}\n\n{mov}\n'
     assert np.sum(brd[ply] & mov) == 1, f'one and only one selection must match - {np.sum(brd[ply] & mov)} matched\n\n{mov}\n'
@@ -28,6 +32,7 @@ def move(ply: int, mov: Mat, brd: Mat) -> None:
     brd[ply] ^= mov
 
 
+@nb.njit
 def capt(ply: int, msk: Mat, brd: Mat) -> None:
     assert np.sum(msk) == 1, f'must capture one piece - tried {np.sum(msk)}\n\n{msk}\n'
     assert np.sum(brd[ply] & msk) == 0, f'cannot capture own pieces - tried {np.sum(brd[ply] & msk)}\n\n{msk}\n'
@@ -35,10 +40,12 @@ def capt(ply: int, msk: Mat, brd: Mat) -> None:
     brd[1 - ply] ^= msk
 
 
+@nb.njit
 def vdir(ply: int) -> int:
     return 1 - 2 * ply
 
 
+@nb.njit
 def can_capt(ply: int, brd: Mat) -> bool:
     K = 2
     h, w = brd.shape[1:]
@@ -64,6 +71,7 @@ def can_capt(ply: int, brd: Mat) -> bool:
     return False
 
 
+@nb.njit
 def can_step(ply: int, brd: Mat) -> bool:
     K = 1
     h, w = brd.shape[1:]
@@ -73,8 +81,6 @@ def can_step(ply: int, brd: Mat) -> bool:
     blit(K, K, brd[1 - ply], lmt0)
     blit(K, K, brd[ply], lmt1)
     lmt = lmt0 | lmt1
-    '''oth = np.zeros((h + 2 * K, w + 2 * K), dtype=brd.dtype)
-    blit(K, K, brd[1 - ply], oth)'''
     for dy, dx in [(0, -1), (vdir(ply), 0), (0, +1)]:
         slf.fill(0)
         blit(K + dy, K + dx, brd[ply], slf)
@@ -84,37 +90,43 @@ def can_step(ply: int, brd: Mat) -> bool:
     return False
 
 
-def is_capt(ply: int, fr: YX, to: YX, brd: Mat) -> bool:
+@nb.njit
+def is_capt(ply: int, fr: YX, to: YX, brd: Mat) -> np.bool_:
     fr_y, fr_x = fr
     to_y, to_x = to
     mi = fr + (to - fr) // 2
     mi_y, mi_x = mi
     dx = to_x - fr_x
     dy = to_y - fr_y
-    return all((abs(dx) == 2,
-                dy == 2 * vdir(ply),
-                brd[ply, fr_y, fr_x],
-                np.all(~brd[:, to_y, to_x]),
-                brd[1 - ply, mi_y, mi_x]))
+    f1 = np.abs(dx) == 2
+    f2 = dy == 2 * vdir(ply)
+    f3 = brd[ply, fr_y, fr_x]
+    f4 = np.all(~brd[:, to_y, to_x])
+    f5 = brd[1 - ply, mi_y, mi_x]
+    return f1 and f2 and f3 and f4 and f5
 
 
-def is_step(ply: int, fr: YX, to: YX, brd: Mat) -> bool:
+@nb.njit
+def is_step(ply: int, fr: YX, to: YX, brd: Mat) -> np.bool_:
     fr_y, fr_x = fr
     to_y, to_x = to
     dx = to_x - fr_x
     dy = to_y - fr_y
-    return all(((abs(dx) > 0) ^ (abs(dy) > 0),
-                abs(dx) == 1 or dy == vdir(ply),
-                brd[ply, fr_y, fr_x],
-                np.all(~brd[:, to_y, to_x])))
+    f1 = (np.abs(dx) > 0) ^ (np.abs(dy) > 0)
+    f2 = np.abs(dx) == 1 or dy == vdir(ply)
+    f3 = brd[ply, fr_y, fr_x]
+    f4 = np.all(~brd[:, to_y, to_x])
+    return f1 and f2 and f3 and f4
 
 
+@nb.njit
 def inbound(yx: YX, lmt: tuple[int, ...]) -> bool:
     y, x = yx
     lmt_y, lmt_x = lmt
     return 0 <= y < lmt_y and 0 <= x < lmt_x
 
 
+@nb.njit
 def to_msk(fr: YX, to: YX | None, brd: Mat) -> Mat:
     out = np.zeros_like(brd[0])
     fr_y, fr_x = fr
@@ -125,8 +137,9 @@ def to_msk(fr: YX, to: YX | None, brd: Mat) -> Mat:
     return out
 
 
+@nb.njit
 def play(ply: int, fr: YX, to: YX, brd: Mat, in_place: bool = False) -> tuple[bool, Mat]:
-    if all((np.sum(brd[ply] & brd[1 - ply]) == 0, inbound(fr, brd.shape[1:]), inbound(to, brd.shape[1:]))):
+    if np.sum(brd[ply] & brd[1 - ply]) == 0 and inbound(fr, brd.shape[1:]) and inbound(to, brd.shape[1:]):
         brd = brd if in_place else np.copy(brd)
         if can_capt(ply, brd):
             if is_capt(ply, fr, to, brd):
@@ -143,6 +156,7 @@ def play(ply: int, fr: YX, to: YX, brd: Mat, in_place: bool = False) -> tuple[bo
     return False, brd
 
 
+@nb.njit
 def win(ply: int, end: Mat, brd: Mat) -> bool:
     goal = lambda: np.any(brd[ply] & end[1 - ply])
     dead = lambda: np.all(~brd[1 - ply])
@@ -171,7 +185,6 @@ class Engine:
     ply: int = field(default_factory=lambda: 1)
     brd: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\brd.png'))
     end: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\end.png'))
-    in_place: bool = True
     hst: deque[tuple[YX, YX | None, YX]] = deque()
 
     @property
@@ -184,7 +197,7 @@ class Engine:
     def play(self, fr: YX, to: YX) -> bool:
         if self.winner is None:
             cpt = is_capt(self.ply, fr, to, self.brd)
-            ok, nxt = play(self.ply, fr, to, self.brd, self.in_place)
+            ok, nxt = play(self.ply, fr, to, self.brd, True)
             if ok:
                 self.ply = 1 - self.ply
                 self.brd = nxt
