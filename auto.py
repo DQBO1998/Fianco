@@ -95,6 +95,7 @@ def simulate(lst: tuple[int, Mat, Mat], fr: YX, to: YX) -> Mat:
     return nxt
 
 
+@nb.njit
 def αβ_search(wrt: int, lst: tuple[int, Mat, Mat], dpth: int, αβ: tuple[float, float]) -> tuple[int, float]:
     ndc = 0
     ply, end, brd = lst
