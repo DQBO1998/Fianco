@@ -9,7 +9,7 @@ import numpy as np
 import numba as nb
 
 
-number: TypeAlias = np.int16
+number: TypeAlias = np.int8
 Mat: TypeAlias = npy.NDArray[np.bool_]
 YX: TypeAlias = npy.NDArray[number]
 
@@ -120,9 +120,8 @@ def is_step(ply: int, fr: YX, to: YX, brd: Mat) -> np.bool_:
 
 
 @nb.njit
-def inbound(yx: YX, lmt: tuple[int, ...]) -> bool:
+def inbound(yx: YX, lmt_y: int, lmt_x: int) -> bool:
     y, x = yx
-    lmt_y, lmt_x = lmt
     return 0 <= y < lmt_y and 0 <= x < lmt_x
 
 
@@ -138,8 +137,8 @@ def to_msk(fr: YX, to: YX | None, brd: Mat) -> Mat:
 
 
 @nb.njit
-def play(ply: int, fr: YX, to: YX, brd: Mat, in_place: bool = False) -> tuple[bool, Mat]:
-    if np.sum(brd[ply] & brd[1 - ply]) == 0 and inbound(fr, brd.shape[1:]) and inbound(to, brd.shape[1:]):
+def play(in_place: bool, ply: int, fr: YX, to: YX, brd: Mat) -> tuple[bool, Mat]:
+    if np.sum(brd[ply] & brd[1 - ply]) == 0 and inbound(fr, *brd.shape[1:]) and inbound(to, *brd.shape[1:]):
         brd = brd if in_place else np.copy(brd)
         if can_capt(ply, brd):
             if is_capt(ply, fr, to, brd):
@@ -158,10 +157,10 @@ def play(ply: int, fr: YX, to: YX, brd: Mat, in_place: bool = False) -> tuple[bo
 
 @nb.njit
 def win(ply: int, end: Mat, brd: Mat) -> bool:
-    goal = lambda: np.any(brd[ply] & end[1 - ply])
-    dead = lambda: np.all(~brd[1 - ply])
-    cant = lambda: not can_step(1 - ply, brd) and not can_capt(1 - ply, brd)
-    if goal() or dead() or cant():
+    goal = np.any(brd[ply] & end[1 - ply])
+    dead = np.all(~brd[1 - ply])
+    cant = not can_step(1 - ply, brd) and not can_capt(1 - ply, brd)
+    if goal or dead or cant:
         return True
     return False
 
@@ -197,7 +196,7 @@ class Engine:
     def play(self, fr: YX, to: YX) -> bool:
         if self.winner is None:
             cpt = is_capt(self.ply, fr, to, self.brd)
-            ok, nxt = play(self.ply, fr, to, self.brd, True)
+            ok, nxt = play(True, self.ply, fr, to, self.brd)
             if ok:
                 self.ply = 1 - self.ply
                 self.brd = nxt

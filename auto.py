@@ -66,16 +66,14 @@ def capts_and_steps(ply: int, brd: Mat) -> Generator[tuple[YX, YX], None, None]:
 
 
 @nb.njit
-def terminal(lst: tuple[int, Mat, Mat]) -> bool:
-    _, end, brd = lst
+def terminal(end: Mat, brd: Mat) -> bool:
     w0 = win(0, end, brd)
     w1 = win(1, end, brd)
     return w0 or w1
 
 
 @nb.njit
-def evaluate(wrt: int, lst: tuple[int, Mat, Mat]) -> float:
-    _, end, brd = lst
+def evaluate(wrt: int, end: Mat, brd: Mat) -> float:
     w0 = win(0, end, brd)
     w1 = win(1, end, brd)
     if w0 or w1:
@@ -85,27 +83,32 @@ def evaluate(wrt: int, lst: tuple[int, Mat, Mat]) -> float:
 
 
 @nb.njit
-def simulate(lst: tuple[int, Mat, Mat], fr: YX, to: YX) -> Mat:
-    ply, end, brd = lst
+def simulate(ply: int, end: Mat, brd: Mat, fr: YX, to: YX) -> Mat:
     w0 = win(0, end, brd)
     w1 = win(1, end, brd)
     assert not w0 and not w1, f'bro, the game is over'
-    ok, nxt = play(ply, fr, to, brd, False)
+    ok, nxt = play(False, ply, fr, to, brd)
     assert ok, f'move unsuccessful - tried {fr, to}'
     return nxt
 
 
+def simulate_in_place(ply: int, end: Mat, brd: Mat, fr: YX, to: YX) -> None:
+    w0 = win(0, end, brd)
+    w1 = win(1, end, brd)
+    assert not w0 and not w1, f'bro, the game is over'
+    ok, _ = play(True, ply, fr, to, brd)
+    assert ok, f'move unsuccessful - tried {fr, to}'
+
+
 @nb.njit
-def αβ_search(wrt: int, lst: tuple[int, Mat, Mat], dpth: int, αβ: tuple[float, float]) -> tuple[int, float]:
+def αβ_search(wrt: int, ply: int, dpth: int, α: float, β: float, end: Mat, brd: Mat) -> tuple[int, float]:
     ndc = 0
-    ply, end, brd = lst
-    if dpth <= 0 or terminal(lst):
-        return ndc, evaluate(wrt, lst)
-    α, β = αβ
+    if dpth <= 0 or terminal(end, brd):
+        return ndc, evaluate(wrt, end, brd)
     scr = -inf
     for (fr, to) in capts_and_steps(ply, brd):
-        add, val = αβ_search(wrt, (1 - ply, end, simulate(lst, fr, to)), dpth - 1, (-β, -α))
-        val = -val
+        add, _val = αβ_search(wrt, 1 - ply, dpth - 1, -β, -α, end, simulate(ply, end, brd, fr, to))
+        val = -_val
         ndc += add + 1
         if val > scr:
             scr = val
@@ -119,20 +122,15 @@ def αβ_search(wrt: int, lst: tuple[int, Mat, Mat], dpth: int, αβ: tuple[floa
 def think(lst: Engine, dpth: int = 3, αβ: tuple[float, float] = (-inf, +inf)) -> tuple[int, tuple[YX, YX] | None]:
     ndc = 0
     lst = deepcopy(lst)
-    wrt = lst.ply
-    end = lst.end
-    brd = lst.brd
-    if terminal((wrt, end, brd)):
+    if terminal(lst.end, lst.brd):
         return ndc, None
     α, β = αβ
     out: tuple[YX, YX] | None = None
     scr = -inf
-    for frto in capts_and_steps(wrt, brd):
-        assert lst.play(*frto), f'move unsuccessful - tried {frto}'
-        add, val = αβ_search(wrt, (wrt, end, brd), dpth - 1, (-β, -α))
-        val = -val
+    for frto in capts_and_steps(lst.ply, lst.brd):
+        add, _val = αβ_search(lst.ply, 1 - lst.ply, dpth - 1, -β, -α, lst.end, simulate(lst.ply, lst.end, lst.brd, *frto))
+        val = -_val
         ndc += add + 1
-        lst.undo()
         if val > scr:
             scr = val
             out = frto
