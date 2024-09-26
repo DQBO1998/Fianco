@@ -3,6 +3,7 @@ from math import inf
 from copy import deepcopy
 from fianco import number, Mat, YX, is_capt, win, vdir, Engine
 from numpy.typing import NDArray
+from numpy.random import default_rng, Generator
 
 import numpy as np
 import numba as nb # type: ignore
@@ -118,4 +119,10 @@ def think(lst: Engine, dpth: int = 3, αβ: tuple[float, float] = (-inf, +inf)) 
             out = (frto[i, 0], frto[i, 1])
     assert out is not None
     return ndc[0], out
+
+
+def monke(lst: Engine, rnd: Generator = default_rng(42)) -> tuple[int, tuple[YX, YX]]:
+    cnt, frto = all_moves(lst.ply, lst.brd)
+    idx = rnd.integers(0, cnt, endpoint=False)
+    return 0, (frto[idx, 0], frto[idx, 1])
     

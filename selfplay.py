@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from typing import TypeAlias
-from auto import think
+from auto import think, monke
 from time import time
 from fianco import *
 
@@ -20,10 +20,11 @@ def fight(max_turns: int = 1000, ply0: Player = lambda g: think(g, 7), ply1: Pla
         ndc, frto = plys[game.ply](game)
         assert frto is not None
         t1 = time()
-        print(f'{frto[0]} ---> {frto[1]} ({ndc} nds / {t1 - t0} s | {ndc / (t1 - t0)} nds / s)')
+        ϵ = 1e-42
+        print(f'{frto[0]} ---> {frto[1]} ({ndc} nds / {t1 - t0} s | {ndc / (t1 - t0 + ϵ)} nds / s)')
         game.play(*frto)
     return None
 
 
 if __name__ == '__main__':
-    fight()
+    fight(ply0=monke)
