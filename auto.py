@@ -1,7 +1,7 @@
 
 from math import inf
 from copy import deepcopy
-from fianco import number, Mat, YX, is_capt, win, vdir, move, capt, Engine
+from fianco import number, Mat, YX, is_capt, win, vdir, Engine
 from numpy.typing import NDArray
 
 import numpy as np
@@ -58,18 +58,6 @@ def all_moves(ply: int, brd: Mat) -> tuple[int, NDArray[number]]:
 
 
 @nb.njit # type: ignore
-def as_move(ply: int, fr: YX, to: YX, brd: Mat) -> tuple[Mat, Mat]:
-    mov = np.zeros(brd.shape[1:], dtype=brd.dtype)
-    mov[fr[0], fr[1]] = True
-    mov[to[0], to[1]] = True
-    cap = np.zeros(brd.shape[1:], dtype=brd.dtype)
-    if is_capt(ply, fr, to, brd):
-        th = (fr + to) // 2
-        cap[th[0], th[1]] = True
-    return mov, cap
-
-
-@nb.njit # type: ignore
 def is_end(end: Mat, brd: Mat) -> bool | np.bool_:
     return win(0, end, brd) or win(1, end, brd)
 
@@ -86,9 +74,11 @@ def scr_at(wrt: int, end: Mat, brd: Mat) -> float:
 @nb.njit # type: ignore
 def nxtst(ply: int, fr: YX, to: YX, brd: Mat) -> Mat:
     brd = np.copy(brd)
-    mov, cap = as_move(ply, fr, to, brd)
-    move(ply, mov, brd)
-    capt(ply, cap, brd)
+    if is_capt(ply, fr, to, brd):
+        th = (fr + to) // 2
+        brd[1 - ply, th[0], th[1]] = False
+    brd[ply, fr[0], fr[1]] = False
+    brd[ply, to[0], to[1]] = True
     return brd
 
 
