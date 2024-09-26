@@ -2,9 +2,10 @@
 from itertools import product
 from dataclasses import dataclass, field
 from collections import deque
+from textwrap import dedent
 from time import time
-from fianco import Engine, win, number, YX
-from auto import think
+from fianco import *
+from auto import think, scr_at
 
 import numpy as np
 import pygame as pyg
@@ -25,9 +26,9 @@ def ply2txt(ply: int) -> str:
 def mod2txt(*vrts: YX) -> str:
     substr = ''
     if len(vrts) >= 1:
-        substr = f'from {vrts[0] + 1}'
+        substr = f'from {vrts[0]}'
     if len(vrts) >= 2:
-        substr = f"{substr} to {vrts[1] + 1}"
+        substr = f"{substr} to {vrts[1]}"
     return substr
 
 
@@ -56,7 +57,6 @@ def paint(cur_yx: YX, gmst: GameState) -> tuple[int, int]:
         fr_yx = gmst.vrts[0]
         fr_y, fr_x = fr_yx.astype(np.int16)
         to_y, to_x = cur_yx.astype(np.int16)
-        #print((fr_x * clx + clx // 2, fr_y * cly + cly // 2), (to_x * clx + clx // 2, to_y * cly + cly // 2))
         pyg.draw.line(gmst.disp, (0, 0, 0), (fr_x * clx + clx // 2, fr_y * cly + cly // 2), (to_x * clx + clx // 2, to_y * cly + cly // 2), 1)
         caption = f'{ply2txt(gmst.game.ply)} | {mod2txt(fr_yx, cur_yx)}'
     elif not done(gmst):
@@ -79,7 +79,6 @@ def main():
         gmst = GameState()
         clock = pyg.time.Clock()
         cur_yx = np.array((0, 0), number)
-        #print(f'score: {BaseAI.evaluate(0, gmst.game)} - {BaseAI.evaluate(1, gmst.game)}\n')
         while gmst.run:
             assert 0 <= len(gmst.vrts) <= 2, f'yo, why are you moving {len(gmst.vrts)} steps in one turn?!'
             cur_yx = cursor_at(*paint(cur_yx, gmst))
@@ -89,32 +88,60 @@ def main():
                     gmst.run = False
                 elif ev.type == pyg.KEYDOWN:
                     if ev.key == pyg.K_r:
+                        _ply = gmst.game.ply
                         gmst = GameState()
+                        print(dedent(f"""
+                        ========== P{_ply} ==========
+                        reset!
+                        """).strip())
                     elif ev.key == pyg.K_z:
                         kmods = pyg.key.get_mods()
                         if kmods & pyg.KMOD_CTRL:
-                            gmst.game.undo()
+                            _ply = gmst.game.ply
+                            _ok = gmst.game.undo()
+                            print(dedent(f"""
+                            ========== P{_ply} ==========
+                            undo: {_ok}
+                            """).strip())
                     elif ev.key == pyg.K_x:
                         kmods = pyg.key.get_mods()
                         if kmods & pyg.KMOD_CTRL:
+                            _ply = gmst.game.ply
+                            print(dedent(f"""
+                            ========== P{_ply} ==========
+                            thinking...""").strip())
                             t0 = time()
-                            nc, frto = think(gmst.game, 7)
+                            nc, _frto = think(gmst.game, 7)
                             t1 = time()
-                            print(f'Δ = {t1 - t0}, N = {nc}')
-                            print(f'N/s = {nc / (t1 - t0)}')
-                            print('===')
-                            if frto is not None:
-                                gmst.vrts.extend(frto)
+                            gmst.vrts.extend(_frto)
+                            fr_yx = _frto[0]
+                            to_yx = _frto[1]
+                            print(dedent(f"""
+                            advice:
+                              {int(fr_yx[0]), int(fr_yx[1])} -> {int(to_yx[0]), int(to_yx[1])}
+                            stats:
+                              Δ = {t1 - t0}
+                              N = {nc}
+                              N/Δ = {nc / (t1 - t0)}
+                            """).strip())
                 elif ev.type == pyg.MOUSEBUTTONDOWN:
                     if ev.button == pyg.BUTTON_RIGHT:
                         gmst.vrts.clear()
                     elif ev.button == pyg.BUTTON_LEFT:
                         gmst.vrts.append(cur_yx)
+            while len(gmst.vrts) > 2:
+                gmst.vrts.pop()
             if len(gmst.vrts) == 2:
                 fr_yx, to_yx = gmst.vrts
                 gmst.vrts.clear()
-                gmst.game.play(fr_yx, to_yx)
-                #print(f'score: {BaseAI.evaluate(0, gmst.game)} - {BaseAI.evaluate(1, gmst.game)}\n')
+                _ply = gmst.game.ply
+                _ok = gmst.game.play(fr_yx, to_yx)
+                print(dedent(f"""
+                ========== P{_ply} ==========
+                mov: {int(fr_yx[0]), int(fr_yx[1])} -> {int(to_yx[0]), int(to_yx[1])}
+                scr: {scr_at(_ply, gmst.game.end, gmst.game.brd)}
+                ok: {_ok}
+                """).strip())
     finally:
         pyg.quit()
 
