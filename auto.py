@@ -1,78 +1,81 @@
 
-from collections.abc import Generator
 from math import inf
 from copy import deepcopy
-from fianco import *
+from fianco import number, Mat, YX, is_capt, win, vdir, move, capt, Engine
+from numpy.typing import NDArray
 
+import numpy as np
 import numba as nb # type: ignore
-import gc
 
 
 @nb.njit # type: ignore
-def capts(ply: int, brd: Mat) -> Generator[tuple[YX, YX], None, None]:
-    K = 2
-    h, w = brd.shape[1:]
-    slf = np.empty((h + 2 * K, w + 2 * K), dtype=brd.dtype)
-    lmt0 = np.ones((h + 2 * K, w + 2 * K), dtype=brd.dtype)
-    lmt1 = np.copy(lmt0)
-    blit(K, K, brd[1 - ply], lmt0)
-    blit(K, K, brd[ply], lmt1)
-    lmt = lmt0 | lmt1
-    oth = np.zeros((h + 2 * K, w + 2 * K), dtype=brd.dtype)
-    blit(K, K, brd[1 - ply], oth)
+def capts(ply: int, brd: Mat) -> tuple[int, NDArray[number]]:
+    at = 0
+    top = np.sum(brd[ply]) * 2
+    out = np.empty((top, 2, 2), dtype=number)
     dy = vdir(ply)
-    for dx in (-1, +1):
-        slf.fill(0)
-        blit(K + dy, K + dx, brd[ply], slf)
-        cap = (slf & oth)[K:-K, K:-K]
-        if np.any(cap):
-            slf.fill(0)
-            blit(K + dy, K + dx, cap, slf)
-            lnd = (slf & ~lmt)[K:-K, K:-K]
-            if np.any(lnd):
-                to = np.swapaxes(np.stack(np.nonzero(lnd), axis=0), 0, 1)
-                fr = to - 2 * np.array((dy, dx), dtype=number)
-                for n in range(to.shape[0]):
-                    yield fr[n], to[n]
+    for y in range(0, brd.shape[1]):
+        for x in range(0, brd.shape[2]):
+            if brd[ply, y, x]:
+                for dx in (-1, +1):
+                    if 0 <= y + dy < brd.shape[1] and 0 <= x + dx < brd.shape[2] \
+                        and 0 <= y + 2 * dy < brd.shape[1] and 0 <= x + 2 * dx < brd.shape[2] \
+                        and brd[1 - ply, y + dy, x + dx] \
+                        and ~(brd[1 - ply, y + 2 * dy, x + 2 * dx] | brd[ply, y + 2 * dy, x + 2 * dx]):
+                        out[at, 0, 0] = y
+                        out[at, 0, 1] = x
+                        out[at, 1, 0] = y + 2 * dy
+                        out[at, 1, 1] = x + 2 * dx
+                        at += 1
+    return at, out
 
 
 @nb.njit # type: ignore
-def steps(ply: int, brd: Mat) -> Generator[tuple[YX, YX], None, None]:
-    if not can_capt(ply, brd):
-        K = 1
-        h, w = brd.shape[1:]
-        slf = np.empty((h + 2 * K, w + 2 * K), dtype=brd.dtype)
-        lmt0 = np.ones((h + 2 * K, w + 2 * K), dtype=brd.dtype)
-        lmt1 = np.copy(lmt0)
-        blit(K, K, brd[1 - ply], lmt0)
-        blit(K, K, brd[ply], lmt1)
-        lmt = lmt0 | lmt1
-        for dy, dx in [(0, -1), (vdir(ply), 0), (0, +1)]:
-            slf.fill(0)
-            blit(K + dy, K + dx, brd[ply], slf)
-            lnd = (slf & ~lmt)[K:-K, K:-K]
-            if np.any(lnd):
-                to = np.swapaxes(np.stack(np.nonzero(lnd), axis=0), 0, 1)
-                fr = to - np.array((dy, dx), dtype=number)
-                for n in range(to.shape[0]):
-                    yield fr[n], to[n]
+def steps(ply: int, brd: Mat) -> tuple[int, NDArray[number]]:
+    at = 0
+    top = np.sum(brd[ply]) * 3
+    out = np.empty((top, 2, 2), dtype=number)
+    for y in range(0, brd.shape[1]):
+        for x in range(0, brd.shape[2]):
+            if brd[ply, y, x]:
+                for dy, dx in ((vdir(ply), 0), (0, -1), (0, +1)):
+                    if 0 <= y + dy < brd.shape[1] and 0 <= x + dx < brd.shape[2] \
+                        and not brd[ply, y + dy, x + dx] and not brd[1 - ply, y + dy, x + dx]:
+                            out[at, 0, 0] = y
+                            out[at, 0, 1] = x
+                            out[at, 1, 0] = y + dy
+                            out[at, 1, 1] = x + dx
+                            at += 1
+    return at, out
 
 
 @nb.njit # type: ignore
-def capts_and_steps(ply: int, brd: Mat) -> Generator[tuple[YX, YX], None, None]:
-    for frto in capts(ply, brd):
-        yield frto
-    for frto in steps(ply, brd):
-        yield frto
+def all_moves(ply: int, brd: Mat) -> tuple[int, NDArray[number]]:
+    cnt, frto = capts(ply, brd)
+    if cnt <= 0:
+        cnt, frto = steps(ply, brd)
+    return cnt, frto
 
 
 @nb.njit # type: ignore
-def terminal(end: Mat, brd: Mat) -> bool | np.bool_:
+def as_move(ply: int, fr: YX, to: YX, brd: Mat) -> tuple[Mat, Mat]:
+    mov = np.zeros(brd.shape[1:], dtype=brd.dtype)
+    mov[fr[0], fr[1]] = True
+    mov[to[0], to[1]] = True
+    cap = np.zeros(brd.shape[1:], dtype=brd.dtype)
+    if is_capt(ply, fr, to, brd):
+        th = (fr + to) // 2
+        cap[th[0], th[1]] = True
+    return mov, cap
+
+
+@nb.njit # type: ignore
+def is_end(end: Mat, brd: Mat) -> bool | np.bool_:
     return win(0, end, brd) or win(1, end, brd)
 
 
 @nb.njit # type: ignore
-def evaluate(wrt: int, end: Mat, brd: Mat) -> float:
+def scr_at(wrt: int, end: Mat, brd: Mat) -> float:
     w0 = win(0, end, brd)
     if w0 or win(1, end, brd):
         top = 0 if w0 else 1
@@ -81,58 +84,48 @@ def evaluate(wrt: int, end: Mat, brd: Mat) -> float:
 
 
 @nb.njit # type: ignore
-def simulate(ply: int, fr: YX, to: YX, brd: Mat) -> Mat:
-    #assert not win(0, end, brd) and not win(1, end, brd), f'bro, the game is over'
-    #assert np.sum(brd[ply] & brd[1 - ply]) == 0 and inbound(fr, *brd.shape[1:]) and inbound(to, *brd.shape[1:])
+def nxtst(ply: int, fr: YX, to: YX, brd: Mat) -> Mat:
     brd = np.copy(brd)
-    if can_capt(ply, brd):
-        if is_capt(ply, fr, to, brd):
-            at = fr + (to - fr) // 2
-            capt(ply, at_msk(at, brd), brd)
-            # NOTE: The fact that the line bellow repeats twice makes me crazy.
-            # Sometime I will fix this disgrace!
-            move(ply, fr_to_msk(fr, to, brd), brd)
-    elif is_step(ply, fr, to, brd):
-        # NOTE: Yeah, this line is the same as above. Emotional damage!
-        move(ply, fr_to_msk(fr, to, brd), brd)
+    mov, cap = as_move(ply, fr, to, brd)
+    move(ply, mov, brd)
+    capt(ply, cap, brd)
     return brd
 
 
 @nb.njit # type: ignore
-def αβ_search(wrt: int, ply: int, dpth: int, α: float, β: float, end: Mat, brd: Mat) -> tuple[int, float]:
-    ndc = 0
-    if dpth <= 0 or terminal(end, brd):
-        return ndc, evaluate(wrt, end, brd)
+def αβ_search(wrt: int, 
+              ply: int, dpth: int, α: float, β: float, 
+              end: Mat, brd: Mat, 
+              _ndc: NDArray[np.uint64]) -> float:
+    if dpth <= 0 or is_end(end, brd):
+        return scr_at(wrt, end, brd)
     scr = -inf
-    for (fr, to) in capts_and_steps(ply, brd):
-        add, _val = αβ_search(wrt, 1 - ply, dpth - 1, -β, -α, end, simulate(ply, fr, to, brd))
-        val = -_val
-        ndc += add + 1
+    cnt, frto = all_moves(ply, brd)
+    for i in range(cnt):
+        _ndc[0] += 1
+        val = -αβ_search(wrt, 1 - ply, dpth - 1, -β, -α, end, nxtst(ply, frto[i, 0], frto[i, 1], brd), _ndc)
         if val > scr:
             scr = val
         if scr > α:
             α = scr
         if scr >= β:
             break
-    return ndc, scr
+    return scr
 
 
-def think(lst: Engine, dpth: int = 3, αβ: tuple[float, float] = (-inf, +inf)) -> tuple[int, tuple[YX, YX] | None]:
-    ndc = 0
+def think(lst: Engine, dpth: int = 3, αβ: tuple[float, float] = (-inf, +inf)) -> tuple[int, tuple[YX, YX]]:
+    ndc = np.zeros((1,), np.uint64)
     lst = deepcopy(lst)
-    if terminal(lst.end, lst.brd):
-        return ndc, None
     α, β = αβ
     out: tuple[YX, YX] | None = None
     scr = -inf
-    for frto in capts_and_steps(lst.ply, lst.brd):
-        add, _val = αβ_search(lst.ply, 1 - lst.ply, dpth - 1, -β, -α, lst.end, simulate(lst.ply, *frto, lst.brd))
-        val = -_val
-        ndc += add + 1
+    cnt, frto = all_moves(lst.ply, lst.brd)
+    for i in range(cnt):
+        ndc[0] += 1
+        val = -αβ_search(lst.ply, 1 - lst.ply, dpth - 1, -β, -α, lst.end, nxtst(lst.ply, frto[i, 0], frto[i, 1], lst.brd), ndc)
         if val > scr:
             scr = val
-            out = frto
+            out = (frto[i, 0], frto[i, 1])
     assert out is not None
-    #gc.collect()
-    return ndc, out
+    return ndc[0], out
     

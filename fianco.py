@@ -114,7 +114,7 @@ def is_step(ply: int, fr: YX, to: YX, brd: Mat) -> np.bool_:
     return brd[ply, fr_y, fr_x] \
            and ((np.abs(dx) > 0) ^ (np.abs(dy) > 0)) \
            and np.all(~brd[:, to_y, to_x]) \
-           and np.abs(dx) == 1 or dy == vdir(ply)
+           and (np.abs(dx) == 1 or dy == vdir(ply))
 
 
 @nb.njit # type: ignore
@@ -143,7 +143,8 @@ def at_msk(at: YX, brd: Mat) -> Mat:
 
 @nb.njit # type: ignore
 def play(in_place: bool, ply: int, fr: YX, to: YX, brd: Mat) -> tuple[bool, Mat]:
-    if np.sum(brd[ply] & brd[1 - ply]) == 0 and inbound(fr, *brd.shape[1:]) and inbound(to, *brd.shape[1:]):
+    if inbound(fr, *brd.shape[1:]) and inbound(to, *brd.shape[1:]) \
+        and brd[ply, fr[0], fr[1]] and not brd[ply, to[0], to[1]] and not brd[1 - ply, to[0], to[1]]:
         brd = brd if in_place else np.copy(brd)
         if can_capt(ply, brd):
             if is_capt(ply, fr, to, brd):
