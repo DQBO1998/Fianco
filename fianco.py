@@ -47,46 +47,28 @@ def vdir(ply: int) -> int:
 
 @nb.njit # type: ignore
 def can_capt(ply: int, brd: Mat) -> bool:
-    K = 2
-    h, w = brd.shape[1:]
-    slf = np.empty((h + 2 * K, w + 2 * K), dtype=brd.dtype)
-    lmt0 = np.ones((h + 2 * K, w + 2 * K), dtype=brd.dtype)
-    lmt1 = np.copy(lmt0)
-    blit(K, K, brd[1 - ply], lmt0)
-    blit(K, K, brd[ply], lmt1)
-    lmt = lmt0 | lmt1
-    oth = np.zeros((h + 2 * K, w + 2 * K), dtype=brd.dtype)
-    blit(K, K, brd[1 - ply], oth)
     dy = vdir(ply)
-    for dx in (-1, +1):
-        slf.fill(0)
-        blit(K + dy, K + dx, brd[ply], slf)
-        cap = (slf & oth)[K:-K, K:-K]
-        if np.any(cap):
-            slf.fill(0)
-            blit(K + dy, K + dx, cap, slf)
-            lnd = (slf & ~lmt)[K:-K, K:-K]
-            if np.any(lnd):
-                return True
+    for y in range(0, brd.shape[1]):
+        for x in range(0, brd.shape[2]):
+            if brd[ply, y, x]:
+                for dx in (-1, +1):
+                    if 0 <= y + dy < brd.shape[1] and 0 <= x + dx < brd.shape[2] \
+                        and 0 <= y + 2 * dy < brd.shape[1] and 0 <= x + 2 * dx < brd.shape[2] \
+                        and brd[1 - ply, y + dy, x + dx] \
+                        and ~(brd[1 - ply, y + 2 * dy, x + 2 * dx] | brd[ply, y + 2 * dy, x + 2 * dx]):
+                        return True
     return False
 
 
 @nb.njit # type: ignore
 def can_step(ply: int, brd: Mat) -> bool:
-    K = 1
-    h, w = brd.shape[1:]
-    slf = np.empty((h + 2 * K, w + 2 * K), dtype=brd.dtype)
-    lmt0 = np.ones((h + 2 * K, w + 2 * K), dtype=brd.dtype)
-    lmt1 = np.copy(lmt0)
-    blit(K, K, brd[1 - ply], lmt0)
-    blit(K, K, brd[ply], lmt1)
-    lmt = lmt0 | lmt1
-    for dy, dx in [(0, -1), (vdir(ply), 0), (0, +1)]:
-        slf.fill(0)
-        blit(K + dy, K + dx, brd[ply], slf)
-        lnd = (slf & ~lmt)[K:-K, K:-K]
-        if np.any(lnd):
-            return True
+    for y in range(0, brd.shape[1]):
+        for x in range(0, brd.shape[2]):
+            if brd[ply, y, x]:
+                for dy, dx in ((vdir(ply), 0), (0, -1), (0, +1)):
+                    if 0 <= y + dy < brd.shape[1] and 0 <= x + dx < brd.shape[2] \
+                        and not brd[ply, y + dy, x + dx] and not brd[1 - ply, y + dy, x + dx]:
+                            return True
     return False
 
 
@@ -125,7 +107,7 @@ def inbound(yx: YX, lmt_y: int, lmt_x: int) -> bool:
 
 @nb.njit # type: ignore
 def fr_to_msk(fr: YX, to: YX, brd: Mat) -> Mat:
-    out = np.zeros_like(brd[0])
+    out = np.zeros(brd[0].shape, dtype=brd.dtype)
     fr_y, fr_x = fr
     out[fr_y, fr_x] = True
     to_y, to_x = to
@@ -135,7 +117,7 @@ def fr_to_msk(fr: YX, to: YX, brd: Mat) -> Mat:
 
 @nb.njit # type: ignore
 def at_msk(at: YX, brd: Mat) -> Mat:
-    out = np.zeros_like(brd[0])
+    out = np.zeros(brd[0].shape, dtype=brd.dtype)
     at_y, at_x = at
     out[at_y, at_x] = True
     return out
