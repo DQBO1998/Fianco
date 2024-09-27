@@ -5,7 +5,7 @@ from collections import deque
 from textwrap import dedent
 from time import time
 from fianco import *
-from auto import think, scr_at
+from auto import think, scr_at, AI
 
 import numpy as np
 import pygame as pyg
@@ -77,6 +77,7 @@ def main():
     pyg.init()
     try:
         gmst = GameState()
+        bot = AI(7, gmst.game.end)
         clock = pyg.time.Clock()
         cur_yx = np.array((0, 0), number)
         while gmst.run:
@@ -111,7 +112,7 @@ def main():
                             ========== P{_ply} ==========
                             thinking...""").strip())
                             t0 = time()
-                            nc, _frto = think(gmst.game, 7)
+                            nc, _frto = think(gmst.game, bot)
                             t1 = time()
                             gmst.vrts.extend(_frto)
                             fr_yx = _frto[0]
