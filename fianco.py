@@ -1,6 +1,6 @@
 from collections import deque
 from dataclasses import dataclass, field
-from itertools import product
+from itertools import product, islice
 from numpy import typing as npy
 from typing import TypeAlias
 from PIL import Image as Img
@@ -169,7 +169,15 @@ class Engine:
     ply: int = field(default_factory=lambda: 1)
     brd: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\brd.png'))
     end: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\end.png'))
-    hst: deque[tuple[YX, YX | None, YX]] = field(default_factory=deque)
+    hst: deque[Mat] = field(default_factory=deque)
+    at: int = field(default_factory=lambda: 0)
+
+    @property
+    def threefold(self) -> bool:
+        for old in islice(self.hst, self.hst):
+            if np.all(old == self.brd):
+                return True
+        return False
 
     @property
     def winner(self) -> int | None:
@@ -180,23 +188,17 @@ class Engine:
     
     def play(self, fr: YX, to: YX) -> bool:
         if self.winner is None:
-            cpt = is_capt(self.ply, fr, to, self.brd)
             ok, nxt = play(True, self.ply, fr, to, self.brd)
             if ok:
                 self.ply = 1 - self.ply
+                self.hst.append(self.brd)
                 self.brd = nxt
-                self.hst.append((fr, (fr + to) // 2 if cpt else None, to))
                 return True
         return False
 
     def undo(self) -> bool:
         if self.hst:
             self.ply = 1 - self.ply
-            (fr_y, fr_x), th, (to_y, to_x) = self.hst.pop()
-            if th is not None:
-                th_y, th_x = th
-                self.brd[1 - self.ply, th_y, th_x] = True
-            self.brd[self.ply, fr_y, fr_x] = True
-            self.brd[self.ply, to_y, to_x] = False
+            self.brd = self.hst.pop()
             return True
         return False

@@ -69,12 +69,30 @@ def scr_at(wrt: int, end: Mat, brd: Mat) -> float:
 
 
 @nb.njit # type: ignore
-def nxtst(ply: int, fr: YX, to: YX, brd: Mat) -> None:
-    if is_capt(ply, fr, to, brd):
+def nxtst(ply: int, fr: YX, to: YX, brd: Mat) -> bool:
+    capt = is_capt(ply, fr, to, brd)
+    if capt:
         th = (fr + to) // 2
         brd[1 - ply, th[0], th[1]] = False
     brd[ply, fr[0], fr[1]] = False
     brd[ply, to[0], to[1]] = True
+    return capt
+
+
+@nb.njit # type: ignore
+def prvst(capt: bool, ply: int, fr: YX, to: YX, brd: Mat) -> None:
+    if capt:
+        th = (fr + to) // 2
+        brd[1 - ply, th[0], th[1]] = True
+    brd[ply, fr[0], fr[1]] = True
+    brd[ply, to[0], to[1]] = False
+
+
+@nb.njit # type: ignore
+def malloc(ply: int, brd: Mat) -> NDArray[number]:
+    max = np.sum(brd[ply]) * 5
+    frto = np.empty((max, 2, 2), dtype=number)
+    return frto
 
 
 @nb.njit # type: ignore
@@ -85,15 +103,15 @@ def αβ_search(wrt: int,
     if dpth <= 0 or is_end(end, brd):
         return scr_at(wrt, end, brd)
     scr = -inf
-    max = np.sum(brd[ply]) * 5
-    frto = np.empty((max, 2, 2), dtype=number)
+    frto = malloc(ply, brd)
     cnt = all_moves(ply, brd, frto)
-    nxt_brd = np.empty(brd.shape, dtype=brd.dtype)
     for i in range(cnt):
         meta[0] += 1
-        nxt_brd[:, :, :] = brd
-        nxtst(ply, frto[i, 0], frto[i, 1], nxt_brd)
-        val = -αβ_search(wrt, 1 - ply, dpth - 1, -β, -α, end, nxt_brd, meta)
+        fr = frto[i, 0]
+        to = frto[i, 1]
+        capt = nxtst(ply, fr, to, brd)
+        val = -αβ_search(wrt, 1 - ply, dpth - 1, -β, -α, end, brd, meta)
+        prvst(capt, ply, fr, to, brd)
         if val > scr:
             scr = val
         if scr > α:
@@ -104,20 +122,21 @@ def αβ_search(wrt: int,
 
 
 def think(lst: Engine, dpth: int = 3, αβ: tuple[float, float] = (-inf, +inf)) -> tuple[int, tuple[YX, YX]]:
+    brd = np.copy(lst.brd)
     meta = np.zeros((1,), np.uint64)
     lst = deepcopy(lst)
     α, β = αβ
     out: tuple[YX, YX] | None = None
     scr = -inf
-    max = np.sum(lst.brd[lst.ply]) * 5
-    frto = np.empty((max, 2, 2), dtype=number)
-    cnt = all_moves(lst.ply, lst.brd, frto)
-    nxt_brd = np.empty(lst.brd.shape, dtype=lst.brd.dtype)
+    frto = malloc(lst.ply, brd)
+    cnt = all_moves(lst.ply, brd, frto)
     for i in range(cnt):
         meta[0] += 1
-        nxt_brd[:, :, :] = lst.brd
-        nxtst(lst.ply, frto[i, 0], frto[i, 1], nxt_brd)
-        val = -αβ_search(lst.ply, 1 - lst.ply, dpth - 1, -β, -α, lst.end, nxt_brd, meta)
+        fr = frto[i, 0]
+        to = frto[i, 1]
+        capt = nxtst(lst.ply, fr, to, brd)
+        val = -αβ_search(lst.ply, 1 - lst.ply, dpth - 1, -β, -α, lst.end, brd, meta)
+        prvst(capt, lst.ply, fr, to, brd)
         if val > scr:
             scr = val
             out = (frto[i, 0], frto[i, 1])
