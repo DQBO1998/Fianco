@@ -5,7 +5,7 @@ from collections import deque
 from textwrap import dedent
 from time import time
 from fianco import *
-from auto import think, scr_at
+from bot import think, scr_at
 
 import numpy as np
 import pygame as pyg
@@ -111,7 +111,7 @@ def main():
                             ========== P{_ply} ==========
                             thinking...""").strip())
                             t0 = time()
-                            nc, _frto = think(gmst.game, 7)
+                            nc, vl, _frto = think(gmst.game, (d := 7))
                             t1 = time()
                             gmst.vrts.extend(_frto)
                             fr_yx = _frto[0]
@@ -119,10 +119,12 @@ def main():
                             print(dedent(f"""
                             advice:
                               {int(fr_yx[0]), int(fr_yx[1])} -> {int(to_yx[0]), int(to_yx[1])}
+                              within {d} (from {gmst.game.trn + 1} to {gmst.game.trn + d}) get {vl}
                             stats:
+                              D = {d}
                               Δ = {t1 - t0}
                               N = {nc}
-                              N/Δ = {nc / (t1 - t0)}
+                              N/Δ = {nc / (t1 - t0 + (ϵ := 1e-42))}
                             """).strip())
                 elif ev.type == pyg.MOUSEBUTTONDOWN:
                     if ev.button == pyg.BUTTON_RIGHT:
@@ -138,6 +140,7 @@ def main():
                 _ok = gmst.game.play(fr_yx, to_yx)
                 print(dedent(f"""
                 ========== P{_ply} ==========
+                trn: {gmst.game.trn}
                 mov: {int(fr_yx[0]), int(fr_yx[1])} -> {int(to_yx[0]), int(to_yx[1])}
                 scr: {scr_at(_ply, gmst.game.end, gmst.game.brd)}
                 ok: {_ok}
