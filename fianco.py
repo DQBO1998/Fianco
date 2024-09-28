@@ -55,7 +55,7 @@ def can_capt(ply: int, brd: Mat) -> bool:
                     if 0 <= y + dy < brd.shape[1] and 0 <= x + dx < brd.shape[2] \
                         and 0 <= y + 2 * dy < brd.shape[1] and 0 <= x + 2 * dx < brd.shape[2] \
                         and brd[1 - ply, y + dy, x + dx] \
-                        and ~(brd[1 - ply, y + 2 * dy, x + 2 * dx] | brd[ply, y + 2 * dy, x + 2 * dx]):
+                        and not (brd[1 - ply, y + 2 * dy, x + 2 * dx] | brd[ply, y + 2 * dy, x + 2 * dx]):
                         return True
     return False
 
@@ -170,14 +170,7 @@ class Engine:
     brd: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\brd.png'))
     end: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\end.png'))
     hst: deque[Mat] = field(default_factory=deque)
-    at: int = field(default_factory=lambda: 0)
-
-    @property
-    def threefold(self) -> bool:
-        for old in islice(self.hst, self.hst):
-            if np.all(old == self.brd):
-                return True
-        return False
+    trn: int = field(default_factory=lambda: 0)
 
     @property
     def winner(self) -> int | None:
@@ -188,8 +181,9 @@ class Engine:
     
     def play(self, fr: YX, to: YX) -> bool:
         if self.winner is None:
-            ok, nxt = play(True, self.ply, fr, to, self.brd)
+            ok, nxt = play(False, self.ply, fr, to, self.brd)
             if ok:
+                self.trn += 1
                 self.ply = 1 - self.ply
                 self.hst.append(self.brd)
                 self.brd = nxt
@@ -198,6 +192,7 @@ class Engine:
 
     def undo(self) -> bool:
         if self.hst:
+            self.trn -= 1
             self.ply = 1 - self.ply
             self.brd = self.hst.pop()
             return True
