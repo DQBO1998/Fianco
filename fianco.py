@@ -1,9 +1,8 @@
 from collections import deque
 from dataclasses import dataclass, field
-from itertools import product, islice
+from enum import Enum
 from numpy import typing as npy
 from typing import TypeAlias
-from PIL import Image as Img
 
 import numpy as np
 import numba as nb # type: ignore
@@ -14,7 +13,38 @@ Mat: TypeAlias = npy.NDArray[np.bool_]
 YX: TypeAlias = npy.NDArray[number]
 
 
-@nb.njit # type: ignore
+brd_black_init: Mat = np.array([
+    [1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [0, 1, 0, 0, 0, 0, 0, 1, 0],
+    [0, 0, 1, 0, 0, 0, 1, 0, 0],
+    [0, 0, 0, 1, 0, 1, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0]
+], dtype=np.bool_)
+brd_white_init: Mat = np.flip(brd_black_init, axis=0)
+brd_init: Mat = np.stack((np.copy(brd_black_init), 
+                          np.copy(brd_white_init)), axis=0)
+end_black_init: Mat = np.array([
+    [1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+], dtype=np.bool_)
+end_white_init: Mat = np.flip(end_black_init, axis=0)
+end_init: Mat = np.stack((np.copy(end_black_init), 
+                          np.copy(end_white_init)), axis=0)
+max_time: float = 10.
+pieces = 15
+
+
 def blit(y: int, x: int, fr: Mat, to: Mat) -> None:
     h, w = fr.shape
     to[y:h + y, x:w + x] = fr
@@ -24,88 +54,83 @@ def make_board() -> Mat:
     return np.zeros((2, 9, 9), dtype=np.bool_)
 
 
-@nb.njit # type: ignore
-def move(ply: int, mov: Mat, brd: Mat) -> None:
-    #assert np.sum(mov) == 2, f'only `from` and `to` selections allowed (only 2) - got {np.sum(mov)}\n\n{mov}\n'
-    #assert np.sum(brd[ply] & mov) == 1, f'one and only one selection must match - {np.sum(brd[ply] & mov)} matched\n\n{mov}\n'
-    #assert np.sum(brd[1 - ply] & mov) == 0, f'cannot overlap with other player - {np.sum(brd[1 - ply] & mov)} overlaps\n\n{mov}\n'
-    brd[ply] ^= mov
+def move(wrt: int, mov: Mat, brd: Mat) -> None:
+    assert np.sum(mov) == 2, f'only `from` and `to` selections allowed (only 2) - got {np.sum(mov)}\n\n{mov}\n'
+    assert np.sum(brd[wrt] & mov) == 1, f'one and only one selection must match - {np.sum(brd[wrt] & mov)} matched\n\n{mov}\n'
+    assert np.sum(brd[1 - wrt] & mov) == 0, f'cannot overlap with other player - {np.sum(brd[1 - wrt] & mov)} overlaps\n\n{mov}\n'
+    brd[wrt] ^= mov
+
+
+def capt(wrt: int, msk: Mat, brd: Mat) -> None:
+    assert np.sum(msk) == 1, f'must capture one piece - tried {np.sum(msk)}\n\n{msk}\n'
+    assert np.sum(brd[wrt] & msk) == 0, f'cannot capture own pieces - tried {np.sum(brd[wrt] & msk)}\n\n{msk}\n'
+    assert np.sum(brd[1 - wrt] & msk) == 1, f'must capture from other player - tried {np.sum(brd[1 - wrt] & msk)}\n\n{msk}\n'
+    brd[1 - wrt] ^= msk
 
 
 @nb.njit # type: ignore
-def capt(ply: int, msk: Mat, brd: Mat) -> None:
-    #assert np.sum(msk) == 1, f'must capture one piece - tried {np.sum(msk)}\n\n{msk}\n'
-    #assert np.sum(brd[ply] & msk) == 0, f'cannot capture own pieces - tried {np.sum(brd[ply] & msk)}\n\n{msk}\n'
-    #assert np.sum(brd[1 - ply] & msk) == 1, f'must capture from other player - tried {np.sum(brd[1 - ply] & msk)}\n\n{msk}\n'
-    brd[1 - ply] ^= msk
+def vdir(wrt: int) -> int:
+    return 1 - 2 * wrt
 
 
 @nb.njit # type: ignore
-def vdir(ply: int) -> int:
-    return 1 - 2 * ply
-
-
-@nb.njit # type: ignore
-def can_capt(ply: int, brd: Mat) -> bool:
-    dy = vdir(ply)
+def can_capt(wrt: int, brd: Mat) -> bool:
+    dy = vdir(wrt)
     for y in range(0, brd.shape[1]):
         for x in range(0, brd.shape[2]):
-            if brd[ply, y, x]:
+            if brd[wrt, y, x]:
                 for dx in (-1, +1):
                     if 0 <= y + dy < brd.shape[1] and 0 <= x + dx < brd.shape[2] \
                         and 0 <= y + 2 * dy < brd.shape[1] and 0 <= x + 2 * dx < brd.shape[2] \
-                        and brd[1 - ply, y + dy, x + dx] \
-                        and not (brd[1 - ply, y + 2 * dy, x + 2 * dx] | brd[ply, y + 2 * dy, x + 2 * dx]):
+                        and brd[1 - wrt, y + dy, x + dx] \
+                        and not (brd[1 - wrt, y + 2 * dy, x + 2 * dx] | brd[wrt, y + 2 * dy, x + 2 * dx]):
                         return True
     return False
 
 
 @nb.njit # type: ignore
-def can_step(ply: int, brd: Mat) -> bool:
+def can_step(wrt: int, brd: Mat) -> bool:
     for y in range(0, brd.shape[1]):
         for x in range(0, brd.shape[2]):
-            if brd[ply, y, x]:
-                for dy, dx in ((vdir(ply), 0), (0, -1), (0, +1)):
+            if brd[wrt, y, x]:
+                for dy, dx in ((vdir(wrt), 0), (0, -1), (0, +1)):
                     if 0 <= y + dy < brd.shape[1] and 0 <= x + dx < brd.shape[2] \
-                        and not brd[ply, y + dy, x + dx] and not brd[1 - ply, y + dy, x + dx]:
+                        and not brd[wrt, y + dy, x + dx] and not brd[1 - wrt, y + dy, x + dx]:
                             return True
     return False
 
 
 @nb.njit # type: ignore
-def is_capt(ply: int, fr: YX, to: YX, brd: Mat) -> np.bool_:
+def is_capt(wrt: int, fr: YX, to: YX, brd: Mat) -> np.bool_:
     fr_y, fr_x = fr
     to_y, to_x = to
     mi = fr + (to - fr) // 2
     mi_y, mi_x = mi
     dx = to_x - fr_x
     dy = to_y - fr_y
-    return brd[1 - ply, mi_y, mi_x] \
-           and brd[ply, fr_y, fr_x] \
+    return brd[1 - wrt, mi_y, mi_x] \
+           and brd[wrt, fr_y, fr_x] \
            and np.abs(dx) == 2 \
            and np.all(~brd[:, to_y, to_x]) \
-           and dy == 2 * vdir(ply)
+           and dy == 2 * vdir(wrt)
 
 
-@nb.njit # type: ignore
-def is_step(ply: int, fr: YX, to: YX, brd: Mat) -> np.bool_:
+def is_step(wrt: int, fr: YX, to: YX, brd: Mat) -> np.bool_:
     fr_y, fr_x = fr
     to_y, to_x = to
     dx = to_x - fr_x
     dy = to_y - fr_y
-    return brd[ply, fr_y, fr_x] \
+    return brd[wrt, fr_y, fr_x] \
            and ((np.abs(dx) > 0) ^ (np.abs(dy) > 0)) \
            and np.all(~brd[:, to_y, to_x]) \
-           and (np.abs(dx) == 1 or dy == vdir(ply))
+           and (np.abs(dx) == 1 or dy == vdir(wrt))
 
 
-@nb.njit # type: ignore
 def inbound(yx: YX, lmt_y: int, lmt_x: int) -> bool:
     y, x = yx
     return 0 <= y < lmt_y and 0 <= x < lmt_x
 
 
-@nb.njit # type: ignore
 def fr_to_msk(fr: YX, to: YX, brd: Mat) -> Mat:
     out = np.zeros(brd[0].shape, dtype=brd.dtype)
     fr_y, fr_x = fr
@@ -115,7 +140,6 @@ def fr_to_msk(fr: YX, to: YX, brd: Mat) -> Mat:
     return out
 
 
-@nb.njit # type: ignore
 def at_msk(at: YX, brd: Mat) -> Mat:
     out = np.zeros(brd[0].shape, dtype=brd.dtype)
     at_y, at_x = at
@@ -123,77 +147,67 @@ def at_msk(at: YX, brd: Mat) -> Mat:
     return out
 
 
-@nb.njit # type: ignore
-def play(in_place: bool, ply: int, fr: YX, to: YX, brd: Mat) -> tuple[bool, Mat]:
+def play(in_place: bool, wrt: int, fr: YX, to: YX, brd: Mat) -> tuple[bool, Mat]:
     if inbound(fr, *brd.shape[1:]) and inbound(to, *brd.shape[1:]) \
-        and brd[ply, fr[0], fr[1]] and not brd[ply, to[0], to[1]] and not brd[1 - ply, to[0], to[1]]:
+        and brd[wrt, fr[0], fr[1]] and not brd[wrt, to[0], to[1]] and not brd[1 - wrt, to[0], to[1]]:
         brd = brd if in_place else np.copy(brd)
-        if can_capt(ply, brd):
-            if is_capt(ply, fr, to, brd):
+        if can_capt(wrt, brd):
+            if is_capt(wrt, fr, to, brd):
                 at = fr + (to - fr) // 2
-                capt(ply, at_msk(at, brd), brd)
+                capt(wrt, at_msk(at, brd), brd)
                 # NOTE: The fact that the line bellow repeats twice makes me crazy.
                 # Sometime I will fix this disgrace!
-                move(ply, fr_to_msk(fr, to, brd), brd)
+                move(wrt, fr_to_msk(fr, to, brd), brd)
                 return True, brd
-        elif is_step(ply, fr, to, brd):
+        elif is_step(wrt, fr, to, brd):
             # NOTE: Yeah, this line is the same as above. Emotional damage!
-            move(ply, fr_to_msk(fr, to, brd), brd)
+            move(wrt, fr_to_msk(fr, to, brd), brd)
             return True, brd
     return False, brd
 
 
 @nb.njit # type: ignore
-def win(ply: int, end: Mat, brd: Mat) -> np.bool_ | bool:
-    return np.any(brd[ply] & end[1 - ply]) \
-           or np.all(~brd[1 - ply]) \
-           or (not can_step(1 - ply, brd) and not can_capt(1 - ply, brd))
+def win(wrt: int, end: Mat, brd: Mat) -> np.bool_ | bool:
+    return np.any(brd[wrt] & end[1 - wrt]) \
+           or np.all(~brd[1 - wrt]) \
+           or (not can_step(1 - wrt, brd) and not can_capt(1 - wrt, brd))
 
 
-def load(pth: str) -> Mat:
-    brd = make_board()
-    with Img.open(pth) as img:
-        BLACK = (0,) * 3
-        WHITE = (255,) * 3
-        image = img.convert('RGB')
-        wth, hgt = image.size
-        for i, j in product(range(hgt), range(wth)):
-            pix = image.getpixel((j, i))
-            if pix == BLACK or pix == WHITE:
-                brd[int(pix == WHITE), i, j] = True
-    return brd
+class End(Enum):
+    BLACK_WINS = 0
+    WHITE_WINS = 1
+    TIE = 2
 
 
 @dataclass
 class Engine:
-    ply: int = field(default_factory=lambda: 1)
-    brd: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\brd.png'))
-    end: Mat = field(default_factory=lambda: load(r'D:\Github\Fianco\end.png'))
+    wrt: int = field(default_factory=lambda: 1)
+    brd: Mat = field(default_factory=lambda: np.copy(brd_init))
+    end: Mat = field(default_factory=lambda: np.copy(end_init))
     hst: deque[Mat] = field(default_factory=deque)
-    trn: int = field(default_factory=lambda: 0)
 
     @property
-    def winner(self) -> int | None:
-        for i in (0, 1):
-            if win(i, self.end, self.brd):
-                return i
+    def wins(self) -> End | None:
+        # check if black or white wins
+        if win(0, self.end, self.brd):
+            return End.BLACK_WINS
+        if win(1, self.end, self.brd):
+            return End.WHITE_WINS
         return None
     
     def play(self, fr: YX, to: YX) -> bool:
-        if self.winner is None:
-            ok, nxt = play(False, self.ply, fr, to, self.brd)
-            if ok:
-                self.trn += 1
-                self.ply = 1 - self.ply
-                self.hst.append(self.brd)
-                self.brd = nxt
-                return True
-        return False
+        if self.wins is None: # if the game is still going
+            ok, nxt = play(False, self.wrt, fr, to, self.brd) # try moving a piece from `fr` to `to`
+            if ok: # if the move was successful
+                self.wrt = 1 - self.wrt # swap players
+                self.hst.append(self.brd) # store the previous state
+                self.brd = nxt # address new state
+                return True # return `True` to signal the move was successful
+        return False # return `False` to signal the move failed
 
     def undo(self) -> bool:
-        if self.hst:
-            self.trn -= 1
-            self.ply = 1 - self.ply
-            self.brd = self.hst.pop()
-            return True
-        return False
+        if self.hst: # if there are previous moves
+            self.wrt = 1 - self.wrt # swap players
+            self.brd = self.hst.pop() # address previous move
+            return True # return `True` to signal the undo was successful
+        return False # return `False` to singal the undo failed
