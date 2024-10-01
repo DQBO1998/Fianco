@@ -11,10 +11,9 @@ import numpy as np
 import numba as nb # type: ignore
 
 
-NODES = 0
-DEPTH = 1
-
-M: int = 1000000
+BIG_M: int = 1000000
+ROWS_0 = np.array([i + 1 for i in range(9)], dtype=np.int32)
+COLS_0 = np.array([1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int32)
 
 
 
@@ -86,17 +85,34 @@ def is_end(end: Mat, brd: Mat) -> bool | np.bool_:
 
 
 @nb.njit # type: ignore
-def scr_at(wrt: int, end: Mat, brd: Mat) -> float:
+def mdiff(wrt: int, brd: Mat) -> float:
+    return np.sum(brd[wrt]) - np.sum(brd[1 - wrt])
+
+
+@nb.njit # type: ignore
+def glval(wrt: int, brd: Mat, rows: NDArray[Any], cols: NDArray[Any]) -> float:
+    msk = brd[wrt]
+    s = 0
+    for i in range(rows.shape[0]):
+        for j in range(cols.shape[0]):
+            at = i
+            if wrt == 0:
+                at = rows.shape[0] - 1 - i
+            s += msk[at, j] * (rows[at] + cols[j])
+    return s
+
+
+@nb.njit # type: ignore
+def scr_at(wrt: int, end: Mat, brd: Mat, rows: NDArray[Any], cols: NDArray[Any]) -> float:
     for p in (0, 1):
         if win(p, end, brd):
             if p == wrt:
-                return M
-            return -M
-    s = np.sum(brd[wrt])
-    o = np.sum(brd[1 - wrt])
-    Δ = s - o
-    λ = 0.6
-    return λ * Δ + (1 - λ) * 0
+                return BIG_M
+            return -BIG_M
+    mtΔ = mdiff(wrt, brd)
+    glΔ = glval(wrt, brd, rows, cols) - glval(1 - wrt, brd, rows, cols)
+    λ = 20
+    return λ * mtΔ + glΔ
 
 
 @nb.njit # type: ignore
@@ -112,17 +128,17 @@ def make(capt: np.bool_, flip: bool, wrt: int, fr: YX, to: YX, brd: Mat) -> None
 def search(root: bool,
            wrt: int, dpth: int, α: float, β: float, 
            end: Mat, brd: Mat, 
-           ndc: NDArray[np.uint64], out: NDArray[number]) -> float:
+           out: NDArray[number],
+           rows: NDArray[Any], cols: NDArray[Any]) -> float:
     if dpth <= 0 or is_end(end, brd):
-        return scr_at(wrt, end, brd)
+        return scr_at(wrt, end, brd, rows, cols)
     scr = -inf
     cnt, frto = all_moves(wrt, brd)
     for i in range(cnt):
-        ndc[0] += 1
         fr = frto[i, 0]; to = frto[i, 1]
         capt = is_capt(wrt, fr, to, brd)
         make(capt, False, wrt, fr, to, brd)
-        val = -search(False, 1 - wrt, dpth - 1, -β, -max(α, scr), end, brd, ndc, out)
+        val = -search(False, 1 - wrt, dpth - 1, -β, -max(α, scr), end, brd, out, rows, cols)
         make(capt, True, wrt, fr, to, brd)
         if val > scr:
             scr = val
@@ -138,20 +154,20 @@ def search(root: bool,
 @nb.njit # type: ignore
 def root(wrt: int, dpth: int, α: float, β: float, 
          end: Mat, brd: Mat, 
-         ndc: NDArray[np.uint64], out: NDArray[number]) -> float:
-    return search(True, wrt, dpth, -inf, +inf, end, brd, ndc, out)
+         out: NDArray[number],
+         rows: NDArray[Any], cols: NDArray[Any]) -> float:
+    return search(True, wrt, dpth, -inf, +inf, end, brd, out, rows, cols)
 
 
-def think(lst: Engine, dpth: int = 3) -> tuple[int, float, tuple[YX, YX]]:
+def think(lst: Engine, dpth: int = 3) -> tuple[float, tuple[YX, YX]]:
     lst = deepcopy(lst)
-    ndc = np.zeros((1,), np.uint64)
     out = np.zeros((2, 2), dtype=number)
-    exp = root(lst.wrt, dpth, -inf, +inf, lst.end, lst.brd, ndc, out)
-    return ndc[0], exp, cast(tuple[YX, YX], out)
+    exp = root(lst.wrt, dpth, -inf, +inf, lst.end, lst.brd, out, ROWS_0, COLS_0)
+    return exp, cast(tuple[YX, YX], out)
 
 
-def monke(lst: Engine, rnd: Generator = default_rng(42)) -> tuple[int, float, tuple[YX, YX]]:
+def monke(lst: Engine, rnd: Generator = default_rng(42)) -> tuple[float, tuple[YX, YX]]:
     cnt, frto = all_moves(lst.wrt, lst.brd)
     idx = rnd.integers(0, cnt, endpoint=False)
-    return 0, 0., (frto[idx, 0], frto[idx, 1])
+    return 0., (frto[idx, 0], frto[idx, 1])
     

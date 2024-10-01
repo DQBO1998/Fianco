@@ -20,7 +20,7 @@ import fianco as fnc
 import bot # type: ignore
 
 
-Suggestion: TypeAlias = tuple[int, float, float, tuple[fnc.YX, fnc.YX]]
+Suggestion: TypeAlias = tuple[float, float, tuple[fnc.YX, fnc.YX]]
 Auto: TypeAlias = Future[Suggestion]
 
 
@@ -28,7 +28,7 @@ def yx2chss(y: int, x: int) -> str:
     if 0 <= y < 9 and 0 <= x < 9:
         col = chr(ord('a') + x)
         row = 8 - y + 1
-        return f'{col}{row}'
+        return f'{col}{row} {y, x}'
     return '--'
 
 
@@ -44,9 +44,8 @@ def load_stng() -> Settings:
 header = Template('========== {{ player }} ==========')
 action = Template('action: {{ action }}')
 result = Template('result: {{ result }}')
-stats = Template(dedent("""nc:     {{ nodes }} (nodes)
+stats = Template(dedent("""ply:     {{ ply }} (ply)
 Δt:     {{ delta }} (seconds)
-nc/Δt:  {{ nodes / delta }} (nodes / seconds)
 vl:     {{ value }}"""))
 move = Template('from {{ fr }} to {{ to }}')
 
@@ -129,9 +128,12 @@ def vrts_as_str(game: Game) -> str:
     if len(game.frto) == 0:
         return f'{yx2chss(y, x)}'
     if len(game.frto) == 1:
-        return f'{yx2chss(*game.frto[0])} --> {yx2chss(y, x)}'
+        fr_y, fr_x = game.frto[0]
+        return f'{yx2chss(int(fr_y), int(fr_x))} --> {yx2chss(y, x)}'
     if len(game.frto) == 2:
-        return f'{yx2chss(*game.frto[0])} --> {yx2chss(*game.frto[1])}'
+        fr_y, fr_x = game.frto[0]
+        to_y, to_x = game.frto[1]
+        return f'{yx2chss(int(fr_y), int(fr_x))} --> {yx2chss(int(to_y), int(to_x))}'
     raise NotImplementedError(f'expected 0 <= len(vrts) <= 2 - got {len(game.frto)}')
 
 
@@ -167,9 +169,9 @@ def draw_game(game: Game) -> None:
 
 def suggest(game: Game, dpth: int) -> Suggestion:
     t0 = time()
-    nc, vl, frto = bot.think(game.state, dpth)
+    vl, frto = bot.think(game.state, dpth)
     t1 = time()
-    return nc, (t1 - t0), vl, frto
+    return (t1 - t0), vl, frto
 
 
 def main():
@@ -217,9 +219,9 @@ def main():
                         print(err)
                     else:
                         game.frto.clear()
-                        nc, Δt, vl, frto = game.auto.result()
+                        Δt, vl, frto = game.auto.result()
                         game.frto.extend(frto)
-                        print(stats.render(nodes=nc, delta=Δt, value=vl))
+                        print(stats.render(delta=Δt, value=vl, ply=game.ply))
                     game.auto = None
                 while len(game.frto) > 2:
                     game.frto.pop()

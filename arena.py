@@ -16,7 +16,7 @@ Player: TypeAlias = Callable[[fnc.Engine], tuple[fnc.YX, fnc.YX]]
 
 def smart(ply: int) -> Player:
     def player(game: fnc.Engine) -> tuple[fnc.YX, fnc.YX]:
-        _, _, frto = bot.think(game, ply)
+        _, frto = bot.think(game, ply)
         return frto
     return player
 
@@ -24,7 +24,7 @@ def smart(ply: int) -> Player:
 def dumb(seed: int = 42) -> Player:
     rnd = default_rng(seed)
     def player(game: fnc.Engine) -> tuple[fnc.YX, fnc.YX]:
-        _, _, frto = bot.monke(game, rnd)
+        _, frto = bot.monke(game, rnd)
         return frto
     return player
 
