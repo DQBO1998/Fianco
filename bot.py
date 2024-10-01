@@ -11,7 +11,11 @@ import numpy as np
 import numba as nb # type: ignore
 
 
+NODES = 0
+DEPTH = 1
+
 M: int = 1000000
+
 
 
 def dbg(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -136,7 +140,6 @@ def root(wrt: int, dpth: int, α: float, β: float,
          end: Mat, brd: Mat, 
          ndc: NDArray[np.uint64], out: NDArray[number]) -> float:
     return search(True, wrt, dpth, -inf, +inf, end, brd, ndc, out)
-    
 
 
 def think(lst: Engine, dpth: int = 3) -> tuple[int, float, tuple[YX, YX]]:
@@ -147,8 +150,8 @@ def think(lst: Engine, dpth: int = 3) -> tuple[int, float, tuple[YX, YX]]:
     return ndc[0], exp, cast(tuple[YX, YX], out)
 
 
-def monke(lst: Engine, rnd: Generator = default_rng(42)) -> tuple[int, int, tuple[YX, YX]]:
+def monke(lst: Engine, rnd: Generator = default_rng(42)) -> tuple[int, float, tuple[YX, YX]]:
     cnt, frto = all_moves(lst.wrt, lst.brd)
     idx = rnd.integers(0, cnt, endpoint=False)
-    return 0, 0, (frto[idx, 0], frto[idx, 1])
+    return 0, 0., (frto[idx, 0], frto[idx, 1])
     

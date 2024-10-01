@@ -24,6 +24,14 @@ Suggestion: TypeAlias = tuple[int, float, float, tuple[fnc.YX, fnc.YX]]
 Auto: TypeAlias = Future[Suggestion]
 
 
+def yx2chss(y: int, x: int) -> str:
+    if 0 <= y < 9 and 0 <= x < 9:
+        col = chr(ord('a') + x)
+        row = 8 - y + 1
+        return f'{col}{row}'
+    return '--'
+
+
 class Settings(BaseModel):
    ply: int
 
@@ -119,11 +127,11 @@ def vrts_as_str(game: Game) -> str:
     _, _, (fac_y, fac_x) = get_disp_brd_fac(game)
     y, x = get_cursor(fac_y, fac_x).tolist()
     if len(game.frto) == 0:
-        return f'{y, x}'
+        return f'{yx2chss(y, x)}'
     if len(game.frto) == 1:
-        return f'{game.frto[0]} --> {y, x}'
+        return f'{yx2chss(*game.frto[0])} --> {yx2chss(y, x)}'
     if len(game.frto) == 2:
-        return f'{game.frto[0]} --> {game.frto[1]}'
+        return f'{yx2chss(*game.frto[0])} --> {yx2chss(*game.frto[1])}'
     raise NotImplementedError(f'expected 0 <= len(vrts) <= 2 - got {len(game.frto)}')
 
 
@@ -230,4 +238,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    pause()
