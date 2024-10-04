@@ -9,7 +9,8 @@ import numba as nb # type: ignore
 
 
 number: TypeAlias = np.int8
-Mat: TypeAlias = npy.NDArray[np.bool_]
+cell: TypeAlias = np.bool_
+Mat: TypeAlias = npy.NDArray[cell]
 YX: TypeAlias = npy.NDArray[number]
 
 
@@ -23,7 +24,7 @@ brd_black_init: Mat = np.array([
     [0, 0, 0, 0, 0, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, 0, 0, 0, 0]
-], dtype=np.bool_)
+], dtype=cell)
 brd_white_init: Mat = np.flip(brd_black_init, axis=0)
 brd_init: Mat = np.stack((np.copy(brd_black_init), 
                           np.copy(brd_white_init)), axis=0)
@@ -37,7 +38,7 @@ end_black_init: Mat = np.array([
     [0, 0, 0, 0, 0, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, 0, 0, 0, 0],
-], dtype=np.bool_)
+], dtype=cell)
 end_white_init: Mat = np.flip(end_black_init, axis=0)
 end_init: Mat = np.stack((np.copy(end_black_init), 
                           np.copy(end_white_init)), axis=0)
@@ -51,7 +52,7 @@ def blit(y: int, x: int, fr: Mat, to: Mat) -> None:
 
 
 def make_board() -> Mat:
-    return np.zeros((2, 9, 9), dtype=np.bool_)
+    return np.zeros((2, 9, 9), dtype=cell)
 
 
 def move(wrt: int, mov: Mat, brd: Mat) -> None:
@@ -101,7 +102,7 @@ def can_step(wrt: int, brd: Mat) -> bool:
 
 
 @nb.njit # type: ignore
-def is_capt(wrt: int, fr: YX, to: YX, brd: Mat) -> np.bool_:
+def is_capt(wrt: int, fr: YX, to: YX, brd: Mat) -> cell:
     fr_y, fr_x = fr
     to_y, to_x = to
     mi = fr + (to - fr) // 2
@@ -115,7 +116,7 @@ def is_capt(wrt: int, fr: YX, to: YX, brd: Mat) -> np.bool_:
            and dy == 2 * vdir(wrt)
 
 
-def is_step(wrt: int, fr: YX, to: YX, brd: Mat) -> np.bool_:
+def is_step(wrt: int, fr: YX, to: YX, brd: Mat) -> cell:
     fr_y, fr_x = fr
     to_y, to_x = to
     dx = to_x - fr_x
@@ -167,7 +168,7 @@ def play(in_place: bool, wrt: int, fr: YX, to: YX, brd: Mat) -> tuple[bool, Mat]
 
 
 @nb.njit # type: ignore
-def win(wrt: int, end: Mat, brd: Mat) -> np.bool_ | bool:
+def win(wrt: int, end: Mat, brd: Mat) -> cell | bool:
     return np.any(brd[wrt] & end[1 - wrt]) \
            or np.all(~brd[1 - wrt]) \
            or (not can_step(1 - wrt, brd) and not can_capt(1 - wrt, brd))

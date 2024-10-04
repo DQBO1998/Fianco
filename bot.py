@@ -2,18 +2,18 @@
 from collections.abc import Callable
 from copy import deepcopy
 from typing import Any, cast
-from fianco import number, Mat, YX, is_capt, win, vdir, Engine
+from fianco import number, Mat, YX, is_capt, can_capt, win, vdir, Engine, blit
 from numpy.typing import NDArray
 from numpy.random import default_rng, Generator
-from numpy import inf
+from numpy import inf, nan
 
 import numpy as np
 import numba as nb # type: ignore
 
 
-BIG_M: int = 1000000
-ROWS_0 = np.array([i + 1 for i in range(9)], dtype=np.int32)
-COLS_0 = np.array([1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int32)
+BIG_M: int = 100000
+ROWS_0 = np.array([9 - (i + 1) for i in range(9)], dtype=np.int32)
+COLS_0 = np.array([1, 0, 1, 1, 0, 1, 1, 0, 1], dtype=np.int32)
 
 
 
@@ -66,7 +66,7 @@ def steps(wrt: int, brd: Mat, frto: NDArray[number]) -> int:
 
 
 @nb.njit # type: ignore
-def all_moves(wrt: int, brd: Mat) -> tuple[int, NDArray[number]]:
+def brnchs(wrt: int, brd: Mat) -> tuple[int, NDArray[number]]:
     frto = np.empty((np.sum(brd[wrt]) * 3, 2, 2), dtype=number)
     cnt = capts(wrt, brd, frto)
     if cnt <= 0:
@@ -76,7 +76,7 @@ def all_moves(wrt: int, brd: Mat) -> tuple[int, NDArray[number]]:
 
 @nb.njit # type: ignore
 def is_qui(wrt: int, brd: Mat) -> bool:
-    return False
+    return can_capt(wrt, brd)
 
 
 @nb.njit # type: ignore
@@ -89,16 +89,47 @@ def mdiff(wrt: int, brd: Mat) -> float:
     return np.sum(brd[wrt]) - np.sum(brd[1 - wrt])
 
 
+@nb.stencil # type: ignore
+def rsame(x: NDArray[Any], y: NDArray[Any]) -> float:
+    return (x[0, 0] * y[0,0] + 1) / 2
+
+
+@nb.njit # type: ignore
+def conv2d(brd: NDArray[Any], krn: NDArray[Any]) -> NDArray[Any]:
+    out = np.zeros([s + 2 for s in brd.shape], dtype=krn.dtype)
+    msk = np.ones(brd.shape, dtype=krn.dtype)
+    blit(1, 1, msk, out)
+    for y in range(brd.shape[0]):
+        for x in range(brd.shape[1]):
+            for i in range(krn.shape[0]):
+                for j in range(krn.shape[1]):
+                    out[y, x] *= (brd[y + i - krn.shape[0] // 2, x + j - krn.shape[1] // 2] * krn[i, j] + 1) / 2
+    return out
+
+
+@nb.njit # type: ignore
+def unbin(wrt: int, brd: Mat) -> NDArray[Any]:
+    out = brd[wrt] - brd[1 - wrt]
+    if wrt == 0:
+        out = out[::-1]
+    at = out.shape[1] // 2
+    lw = np.sum(out[:, :at] != 0)
+    rw = np.sum(out[:, at:] != 0)
+    if lw > rw:
+        out = out[:, ::-1]
+    return out
+
+
 @nb.njit # type: ignore
 def glval(wrt: int, brd: Mat, rows: NDArray[Any], cols: NDArray[Any]) -> float:
     msk = brd[wrt]
     s = 0
     for i in range(rows.shape[0]):
         for j in range(cols.shape[0]):
-            at = i
+            a = i
             if wrt == 0:
-                at = rows.shape[0] - 1 - i
-            s += msk[at, j] * (rows[at] + cols[j])
+                a = rows.shape[0] - 1 - i
+            s += msk[i, j] * (rows[a] + cols[j])
     return s
 
 
@@ -111,12 +142,12 @@ def scr_at(wrt: int, end: Mat, brd: Mat, rows: NDArray[Any], cols: NDArray[Any])
             return -BIG_M
     mtΔ = mdiff(wrt, brd)
     glΔ = glval(wrt, brd, rows, cols) - glval(1 - wrt, brd, rows, cols)
-    λ = 20
-    return λ * mtΔ + glΔ
+    w = 20.
+    return w * mtΔ + glΔ
 
 
 @nb.njit # type: ignore
-def make(capt: np.bool_, flip: bool, wrt: int, fr: YX, to: YX, brd: Mat) -> None:
+def do(capt: np.bool_, flip: bool, wrt: int, fr: YX, to: YX, brd: Mat) -> None:
     if capt:
         th = (fr + to) // 2
         brd[1 - wrt, th[0], th[1]] = flip
@@ -125,26 +156,35 @@ def make(capt: np.bool_, flip: bool, wrt: int, fr: YX, to: YX, brd: Mat) -> None
 
 
 @nb.njit # type: ignore
+def rec_mov(fr: YX, to: YX, mov: NDArray[number]) -> None:
+    mov[0, :] = fr
+    mov[1, :] = to
+
+
+@nb.njit # type: ignore
 def search(root: bool,
            wrt: int, dpth: int, α: float, β: float, 
            end: Mat, brd: Mat, 
-           out: NDArray[number],
+           mov: NDArray[number],
            rows: NDArray[Any], cols: NDArray[Any]) -> float:
     if dpth <= 0 or is_end(end, brd):
         return scr_at(wrt, end, brd, rows, cols)
     scr = -inf
-    cnt, frto = all_moves(wrt, brd)
+    cnt, frto = brnchs(wrt, brd)
     for i in range(cnt):
         fr = frto[i, 0]; to = frto[i, 1]
+        if root and cnt <= 1:
+            rec_mov(fr, to, mov)
+            return nan
         capt = is_capt(wrt, fr, to, brd)
-        make(capt, False, wrt, fr, to, brd)
-        val = -search(False, 1 - wrt, dpth - 1, -β, -max(α, scr), end, brd, out, rows, cols)
-        make(capt, True, wrt, fr, to, brd)
+        do(capt, False, wrt, fr, to, brd)
+        dec = 0 if cnt <= 1 else 1
+        val = -search(False, 1 - wrt, dpth - dec, -β, -max(α, scr), end, brd, mov, rows, cols)
+        do(capt, True, wrt, fr, to, brd)
         if val > scr:
             scr = val
             if root:
-                out[0, :] = fr
-                out[1, :] = to
+                rec_mov(fr, to, mov)
         if scr >= β:
             break
     return scr
@@ -167,7 +207,7 @@ def think(lst: Engine, dpth: int = 3) -> tuple[float, tuple[YX, YX]]:
 
 
 def monke(lst: Engine, rnd: Generator = default_rng(42)) -> tuple[float, tuple[YX, YX]]:
-    cnt, frto = all_moves(lst.wrt, lst.brd)
+    cnt, frto = brnchs(lst.wrt, lst.brd)
     idx = rnd.integers(0, cnt, endpoint=False)
     return 0., (frto[idx, 0], frto[idx, 1])
     
