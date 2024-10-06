@@ -1,20 +1,27 @@
 
 from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any, cast
-from fianco import number, Mat, YX, is_capt, can_capt, win, vdir, Engine, blit
+from fianco import number, Mat, YX, is_capt, can_capt, win, vdir, Engine, pieces
 from numpy.typing import NDArray
 from numpy.random import default_rng, Generator
-from numpy import inf, nan
+from numpy import inf, nan, finfo
+from tables import *
 
 import numpy as np
 import numba as nb # type: ignore
 
 
-BIG_M: int = 100000
+MAX_SCR: float = float(finfo(np.float16).max - 1)
+MIN_SCR: float = float(finfo(np.float16).min + 1)
+
 ROWS_0 = np.array([9 - (i + 1) for i in range(9)], dtype=np.int32)
 COLS_0 = np.array([1, 0, 1, 1, 0, 1, 1, 0, 1], dtype=np.int32)
 
+NDC = 0
+TT_HIT = 1
+TT_ATT = 2
 
 
 def dbg(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -84,12 +91,7 @@ def is_end(end: Mat, brd: Mat) -> bool | np.bool_:
     return win(0, end, brd) or win(1, end, brd)
 
 
-@nb.njit # type: ignore
-def mdiff(wrt: int, brd: Mat) -> float:
-    return np.sum(brd[wrt]) - np.sum(brd[1 - wrt])
-
-
-@nb.stencil # type: ignore
+'''@nb.stencil # type: ignore
 def rsame(x: NDArray[Any], y: NDArray[Any]) -> float:
     return (x[0, 0] * y[0,0] + 1) / 2
 
@@ -104,46 +106,19 @@ def conv2d(brd: NDArray[Any], krn: NDArray[Any]) -> NDArray[Any]:
             for i in range(krn.shape[0]):
                 for j in range(krn.shape[1]):
                     out[y, x] *= (brd[y + i - krn.shape[0] // 2, x + j - krn.shape[1] // 2] * krn[i, j] + 1) / 2
-    return out
+    return out'''
 
 
 @nb.njit # type: ignore
-def unbin(wrt: int, brd: Mat) -> NDArray[Any]:
-    out = brd[wrt] - brd[1 - wrt]
-    if wrt == 0:
-        out = out[::-1]
-    at = out.shape[1] // 2
-    lw = np.sum(out[:, :at] != 0)
-    rw = np.sum(out[:, at:] != 0)
-    if lw > rw:
-        out = out[:, ::-1]
-    return out
-
-
-@nb.njit # type: ignore
-def glval(wrt: int, brd: Mat, rows: NDArray[Any], cols: NDArray[Any]) -> float:
-    msk = brd[wrt]
-    s = 0
-    for i in range(rows.shape[0]):
-        for j in range(cols.shape[0]):
-            a = i
-            if wrt == 0:
-                a = rows.shape[0] - 1 - i
-            s += msk[i, j] * (rows[a] + cols[j])
-    return s
-
-
-@nb.njit # type: ignore
-def scr_at(wrt: int, end: Mat, brd: Mat, rows: NDArray[Any], cols: NDArray[Any]) -> float:
+def scr_at(wrt: int, end: Mat, brd: Mat) -> float:
     for p in (0, 1):
         if win(p, end, brd):
             if p == wrt:
-                return BIG_M
-            return -BIG_M
-    mtΔ = mdiff(wrt, brd)
-    glΔ = glval(wrt, brd, rows, cols) - glval(1 - wrt, brd, rows, cols)
-    w = 20.
-    return w * mtΔ + glΔ
+                return MAX_SCR
+            return MIN_SCR
+    brd, _, _ = std_brd(wrt, brd, True)
+    diff = np.sum(brd) / pieces
+    return diff # type: ignore
 
 
 @nb.njit # type: ignore
@@ -165,22 +140,53 @@ def rec_mov(fr: YX, to: YX, mov: NDArray[number]) -> None:
 def search(root: bool,
            wrt: int, dpth: int, α: float, β: float, 
            end: Mat, brd: Mat, 
-           mov: NDArray[number],
-           rows: NDArray[Any], cols: NDArray[Any]) -> float:
+           tt: Table, mov: NDArray[number], stats: NDArray[np.int64]) -> float:
+    # count visited nodes
+    stats[NDC] += 1
+    # read transposition table (tt)
+    tt_ok, tt_i, (vflip, hflip), tt_mov = read_tt(wrt, brd, r_mat, tt)
+    # count total retrieval attempts and successful attempts
+    stats[TT_ATT] += 1
+    stats[TT_HIT] += tt_ok
+    # try to prune the whole sub-tree
+    if tt_ok and tt[tt_i].hgt >= dpth:
+        if tt[tt_i].flg == LB:
+            α = max(α, tt[tt_i].scr)
+        if tt[tt_i].flg == UB:
+            β = min(β, tt[tt_i].scr)
+        # NOTE: either way, the root node will need the move
+        if tt[tt_i].flg == VL or α >= β:
+            if root:
+                fr = tt_mov[0]
+                to = tt_mov[1]
+                rec_mov(fr, to, mov)
+            return tt[tt_i].scr
+    # if max. depth or endgame, evaluate position
     if dpth <= 0 or is_end(end, brd):
-        return scr_at(wrt, end, brd, rows, cols)
+        return scr_at(wrt, end, brd)
+    # try TT recorded move first, then continue with standard AB-Search
     scr = -inf
+    if tt_ok and tt[tt_i].hgt >= 0:
+        fr = tt_mov[0]; to = tt_mov[1]
+        capt = is_capt(wrt, fr, to, brd)
+        do(capt, False, wrt, fr, to, brd) # type: ignore
+        scr = -search(False, 1 - wrt, dpth - 1, -β, -α, end, brd, tt, mov, stats)
+        do(capt, True, wrt, fr, to, brd) # type: ignore
+        if scr >= β:
+            
+    # count and list all available moves
     cnt, frto = brnchs(wrt, brd)
+    # for all available moves - search
     for i in range(cnt):
         fr = frto[i, 0]; to = frto[i, 1]
         if root and cnt <= 1:
             rec_mov(fr, to, mov)
             return nan
         capt = is_capt(wrt, fr, to, brd)
-        do(capt, False, wrt, fr, to, brd)
-        dec = 0 if cnt <= 1 else 1
-        val = -search(False, 1 - wrt, dpth - dec, -β, -max(α, scr), end, brd, mov, rows, cols)
-        do(capt, True, wrt, fr, to, brd)
+        do(capt, False, wrt, fr, to, brd) # type: ignore
+        dec = 0 if cnt <= 1 or (capt and dpth <= 1) else 1
+        val = -search(False, 1 - wrt, dpth - dec, -β, -max(α, scr), end, brd, tt, mov, stats)
+        do(capt, True, wrt, fr, to, brd) # type: ignore
         if val > scr:
             scr = val
             if root:
@@ -194,15 +200,27 @@ def search(root: bool,
 @nb.njit # type: ignore
 def root(wrt: int, dpth: int, α: float, β: float, 
          end: Mat, brd: Mat, 
-         out: NDArray[number],
-         rows: NDArray[Any], cols: NDArray[Any]) -> float:
-    return search(True, wrt, dpth, -inf, +inf, end, brd, out, rows, cols)
+         tt: Table, mov: NDArray[number], stats: NDArray[np.int64]) -> float:
+    return search(True, wrt, dpth, -inf, +inf, end, brd, tt, mov, stats)
+
+
+@dataclass
+class FromBot:
+    ...
+
+
+class Bot:
+    rm: NDArray[Key]
+    tt: tuple[Any, ...]
+
+    def __init__(self, tt_size: int = 2 ** 64) -> None:
+        pass
 
 
 def think(lst: Engine, dpth: int = 3) -> tuple[float, tuple[YX, YX]]:
     lst = deepcopy(lst)
     out = np.zeros((2, 2), dtype=number)
-    exp = root(lst.wrt, dpth, -inf, +inf, lst.end, lst.brd, out, ROWS_0, COLS_0)
+    exp = root(lst.wrt, dpth, -inf, +inf, lst.end, lst.brd, out)
     return exp, cast(tuple[YX, YX], out)
 
 

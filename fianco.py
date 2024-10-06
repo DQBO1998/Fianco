@@ -102,7 +102,7 @@ def can_step(wrt: int, brd: Mat) -> bool:
 
 
 @nb.njit # type: ignore
-def is_capt(wrt: int, fr: YX, to: YX, brd: Mat) -> cell:
+def is_capt(wrt: int, fr: YX, to: YX, brd: Mat) -> bool | cell:
     fr_y, fr_x = fr
     to_y, to_x = to
     mi = fr + (to - fr) // 2
@@ -116,7 +116,8 @@ def is_capt(wrt: int, fr: YX, to: YX, brd: Mat) -> cell:
            and dy == 2 * vdir(wrt)
 
 
-def is_step(wrt: int, fr: YX, to: YX, brd: Mat) -> cell:
+@nb.njit # type: ignore
+def is_step(wrt: int, fr: YX, to: YX, brd: Mat) -> bool | cell:
     fr_y, fr_x = fr
     to_y, to_x = to
     dx = to_x - fr_x
