@@ -17,7 +17,7 @@ import json
 import numpy as np
 import pygame as pyg
 import fianco as fnc
-import bot # type: ignore
+import bot2 as bot
 
 
 Suggestion: TypeAlias = tuple[float, float, tuple[fnc.YX, fnc.YX]]
