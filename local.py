@@ -6,7 +6,6 @@ from collections import deque
 from textwrap import dedent
 from time import time
 from typing import TypeAlias
-from concurrent.futures import ThreadPoolExecutor, Future
 from pydantic import BaseModel
 from jinja2 import Template
 from getch import pause # type: ignore
@@ -21,7 +20,6 @@ import bot2 as bot
 
 
 Suggestion: TypeAlias = tuple[float, float, tuple[fnc.YX, fnc.YX]]
-Auto: TypeAlias = Future[Suggestion]
 
 
 def yx2chss(y: int, x: int) -> str:
@@ -57,7 +55,7 @@ class Game:
     frto: deque[fnc.YX] = field(default_factory=deque)
     disp: pyg.Surface = field(default_factory=lambda: pyg.display.set_mode(((wth := 640), wth)))
     cell: tuple[int, int] = field(default_factory=lambda: (0, 0))
-    auto: Auto | None = None
+    auto: Suggestion | None = None
     anim: Iterator[str] = field(default_factory=lambda: iter(cycle(chain(*(repeat(c, 7) for c in ['◜', 
                                                                                                   '◠', 
                                                                                                   '◝', 
@@ -176,66 +174,56 @@ def suggest(game: Game, dpth: int) -> Suggestion:
 
 def main():
     pyg.init()
-    with ThreadPoolExecutor(max_workers=2) as exe:
-        try:
-            game = Game().from_disk()
-            print(f'bots will search {game.ply}-ply')
-            print(header.render(player=wrt_as_str(game.state.wrt)))
-            clock = pyg.time.Clock()
-            while game.run:
-                assert 0 <= len(game.frto) <= 2, f'yo, why are you moving {len(game.frto)} steps in one turn?!'
-                draw_game(game)
-                clock.tick(60)
-                for ev in pyg.event.get():
-                    kmods = pyg.key.get_mods()
-                    if ev.type == pyg.QUIT:
-                        game.run = False
-                    elif ev.type == pyg.KEYDOWN and ev.key == pyg.K_r and kmods & pyg.KMOD_CTRL:
-                        print(action.render(action='reset'))
-                        if game.auto is not None:
-                            game.auto.cancel()
-                        game.auto = None
-                        game = Game()
-                        print(header.render(player=wrt_as_str(game.state.wrt)))
-                    elif ev.type == pyg.KEYDOWN and ev.key == pyg.K_z and kmods & pyg.KMOD_CTRL:
-                        ok = game.state.undo()
-                        if ok:
-                            print(action.render(action='undo'))
-                            if game.auto is not None:
-                                game.auto.cancel()
-                            game.auto = None
-                    elif ev.type == pyg.KEYDOWN and ev.key == pyg.K_x and kmods & pyg.KMOD_CTRL:
-                        if game.auto is None:
-                            game.auto = exe.submit(suggest, game, game.ply)
-                    elif ev.type == pyg.MOUSEBUTTONDOWN:
-                        if ev.button == pyg.BUTTON_RIGHT:
-                            game.frto.clear()
-                        if ev.button == pyg.BUTTON_LEFT:
-                            _, _, (fac_y, fac_x) = get_disp_brd_fac(game)
-                            cursor = get_cursor(fac_y, fac_x)
-                            game.frto.append(cursor)
-                if game.auto is not None and game.auto.done():
-                    if (err := game.auto.exception()) is not None:
-                        print(err)
-                    else:
-                        game.frto.clear()
-                        Δt, vl, frto = game.auto.result()
-                        game.frto.extend(frto)
-                        print(stats.render(delta=Δt, value=vl, ply=game.ply))
+    try:
+        game = Game().from_disk()
+        print(f'bots will search {game.ply}-ply')
+        print(header.render(player=wrt_as_str(game.state.wrt)))
+        clock = pyg.time.Clock()
+        while game.run:
+            assert 0 <= len(game.frto) <= 2, f'yo, why are you moving {len(game.frto)} steps in one turn?!'
+            draw_game(game)
+            clock.tick(60)
+            for ev in pyg.event.get():
+                kmods = pyg.key.get_mods()
+                if ev.type == pyg.QUIT:
+                    game.run = False
+                elif ev.type == pyg.KEYDOWN and ev.key == pyg.K_r and kmods & pyg.KMOD_CTRL:
+                    print(action.render(action='reset'))
                     game.auto = None
-                while len(game.frto) > 2:
-                    game.frto.pop()
-                if len(game.frto) == 2 and game.auto is None:
-                    ok = game.state.play(*game.frto)
+                    game = Game()
+                    print(header.render(player=wrt_as_str(game.state.wrt)))
+                elif ev.type == pyg.KEYDOWN and ev.key == pyg.K_z and kmods & pyg.KMOD_CTRL:
+                    ok = game.state.undo()
                     if ok:
-                        game.to_disk()
-                        print(action.render(action='move'))
-                        print(move.render(fr=game.frto[0], to=game.frto[1]))
-                        print(header.render(player=wrt_as_str(game.state.wrt)))
-                    game.frto.clear()
-        finally:
-            pyg.quit()
-            exe.shutdown(wait=True, cancel_futures=True)
+                        print(action.render(action='undo'))
+                        game.auto = None
+                elif ev.type == pyg.KEYDOWN and ev.key == pyg.K_x and kmods & pyg.KMOD_CTRL:
+                    if game.auto is None:
+                        game.auto = suggest(game, game.ply)
+                elif ev.type == pyg.MOUSEBUTTONDOWN:
+                    if ev.button == pyg.BUTTON_RIGHT:
+                        game.frto.clear()
+                    if ev.button == pyg.BUTTON_LEFT:
+                        _, _, (fac_y, fac_x) = get_disp_brd_fac(game)
+                        cursor = get_cursor(fac_y, fac_x)
+                        game.frto.append(cursor)
+            if game.auto is not None:
+                Δt, vl, frto = game.auto
+                game.frto.extend(frto)
+                print(stats.render(delta=Δt, value=vl, ply=game.ply))
+                game.auto = None
+            while len(game.frto) > 2:
+                game.frto.pop()
+            if len(game.frto) == 2 and game.auto is None:
+                ok = game.state.play(*game.frto)
+                if ok:
+                    game.to_disk()
+                    print(action.render(action='move'))
+                    print(move.render(fr=game.frto[0], to=game.frto[1]))
+                    print(header.render(player=wrt_as_str(game.state.wrt)))
+                game.frto.clear()
+    finally:
+        pyg.quit()
 
 
 if __name__ == '__main__':

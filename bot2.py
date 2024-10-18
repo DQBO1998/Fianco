@@ -6,10 +6,17 @@ from fianco import number, Mat, YX, is_capt, win, vdir, Engine, pieces
 from numpy.typing import NDArray
 from numpy import inf, nan
 from numba.experimental import jitclass # type: ignore
+from numpy.random import default_rng
+from tables import *
 
 import numpy as np
 import numba as nb # type: ignore
 
+
+print('generating transposition table...')
+DEFAULT_SIZE = 10000000
+r_mat, table = make_tt(100, default_rng(42))
+print('table is generated!')
 
 
 def dbg(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -23,10 +30,20 @@ def dbg(func: Callable[..., Any]) -> Callable[..., Any]:
     return wrap
 
 
-@jitclass([('end_state', nb.bool[:, :, :]),
-           ('board_state', nb.bool[:, :, :]),
-           ('move_from', nb.int8[:]),
-           ('move_to', nb.int8[:])]) # type: ignore
+@jitclass([
+    ('end_state', nb.bool[:, :, :]),
+    ('board_state', nb.bool[:, :, :]),
+    ('move_from', nb.int8[:]),
+    ('move_to', nb.int8[:]),
+    ('tt_lock', nb.uint32[:]),
+    ('tt_move_from', nb.int8[:, :]),
+    ('tt_move_to', nb.int8[:, :]),
+    ('tt_score', nb.uint8[:]),
+    ('tt_flag', nb.uint8[:]),
+    ('tt_height', nb.int32[:]),
+    ('tt_age', nb.uint32[:]),
+    ('r_mat', nb.uint32[:, :, :])
+]) # type: ignore
 class SearchState:
     end_state: Mat
     board_state: Mat
@@ -34,14 +51,39 @@ class SearchState:
     move_from: NDArray[number]
     move_to: NDArray[number]
 
+    tt_lock: TableLock
+    tt_move_from: TableMoveFrom
+    tt_move_to: TableMoveTo
+    tt_score: TableScore
+    tt_flag: TableFlag
+    tt_height: TableHeight
+    tt_age: TableAge
+
+    r_mat: RNums
+
     def __init__(self, 
                  move_from: YX, move_to: YX,
-                 end_state: Mat, board_state: Mat) -> None:
+                 end_state: Mat, board_state: Mat,
+                 _table: Table, r_mat: RNums) -> None:
         self.end_state = end_state
         self.board_state = board_state
 
         self.move_from = move_from
         self.move_to = move_to
+
+        self.tt_lock = _table[LOCK]
+        self.tt_move_from = _table[FROM]
+        self.tt_move_to = _table[TO]
+        self.tt_score = _table[SCORE]
+        self.tt_flag = _table[FLAG]
+        self.tt_height = _table[HEIGHT]
+        self.tt_age = _table[AGE]
+
+        self.r_mat = r_mat
+
+    def table(self) -> Table:
+        return (self.tt_lock, self.tt_move_from, self.tt_move_to,
+                self.tt_score, self.tt_flag, self.tt_height, self.tt_age)
 
 
 @nb.njit # type: ignore
@@ -129,7 +171,7 @@ def make_or_unmake(is_capture: np.bool_, unmake: bool, for_player: int, move_fro
 
 
 @nb.njit # type: ignore
-def search(is_root: bool, for_player: int, depth: int, alpha: float, beta: float, state: SearchState) -> float:
+def ab_search(is_root: bool, for_player: int, depth: int, alpha: float, beta: float, state: SearchState) -> float:
     if depth <= 0 or is_end(state.end_state, state.board_state):
         return evaluate(for_player, state.end_state, state.board_state)
     score = -inf
@@ -143,7 +185,7 @@ def search(is_root: bool, for_player: int, depth: int, alpha: float, beta: float
         is_capture = is_capt(for_player, move_from, move_to, state.board_state)
         make_or_unmake(is_capture, False, for_player, move_from, move_to, state.board_state)
         decrease = 0 if num_moves <= 1 else 1
-        value = -search(False, 1 - for_player, depth - decrease, -beta, -max(alpha, score), state)
+        value = -ab_search(False, 1 - for_player, depth - decrease, -beta, -max(alpha, score), state)
         make_or_unmake(is_capture, True, for_player, move_from, move_to, state.board_state)
         if value > score:
             score = value
@@ -158,12 +200,14 @@ def search(is_root: bool, for_player: int, depth: int, alpha: float, beta: float
 @dbg
 @nb.njit # type: ignore
 def from_root(for_player: int, depth: int, state: SearchState) -> float:
-    return search(True, for_player, depth, -inf, +inf, state)
+    return ab_search(True, for_player, depth, -inf, +inf, state)
 
 
 def think(game: Engine, max_depth: int = 3) -> tuple[float, tuple[YX, YX]]:
     game = deepcopy(game)
-    state = SearchState(np.empty((2,), dtype=np.int8), np.empty((2,), dtype=np.int8), game.end, game.brd)
+    state = SearchState(np.empty((2,), dtype=np.int8), np.empty((2,), dtype=np.int8), 
+                        game.end, game.brd, 
+                        table, r_mat)
     score = nan
     if game.wins is None:
         score = from_root(game.wrt, max_depth, state)
