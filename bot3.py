@@ -12,7 +12,6 @@ from tables import *
 
 import numpy as np
 import numba as nb # type: ignore
-import time
 
 
 age = 0
@@ -21,6 +20,7 @@ r_ply, r_mat, table = None, None, None
 
 
 def reset(size: int):
+    size = 1
     global age
     global table
     global r_ply
@@ -273,88 +273,34 @@ def is_legal(num_moves: int, move_from: YX, move_to: YX, moves: NDArray[number])
 @nb.njit # type: ignore
 def ab_search(is_root: bool, for_player: int, depth: int, alpha: float, beta: float, state: SearchState) -> float:
     state.nodes += 1
+        
+    if depth <= 0 or is_end(state.end_state, state.board_state):
+        return evaluate(for_player, state.end_state, state.board_state)
 
     num_moves, moves = branches(for_player, state.board_state)
-    if is_root and num_moves <= 1:
+    if is_root and num_moves == 1:
         state.move_from = moves[0, 0]
         state.move_to = moves[0, 1]
         return nan
 
-    tt_hash = encode_board(for_player, state.board_state, state.r_ply, state.r_mat)
-    tt_idx = tt_hash % state.table()[0].shape[0]
-    tt_ent = read_tt(tt_idx, state.table())
-    legal = is_legal(num_moves, tt_ent[FROM], tt_ent[TO], moves)
-    tt_hit = tt_ent[LOCK] == tt_hash and tt_ent[PLAYER] == for_player and legal >= 0
-    state.hits += tt_hit
-
-    if tt_hit and tt_ent[HEIGHT] >= depth:
-        if tt_ent[FLAG] == FINAL:
-            if is_root:
-                state.move_from = tt_ent[FROM]
-                state.move_to = tt_ent[TO]
-            return tt_ent[SCORE] # type: ignore
-        if tt_ent[FLAG] == LBOUND:
-            alpha = max(alpha, tt_ent[SCORE]) # type: ignore
-        if tt_ent[FLAG] == UBOUND:
-            beta = min(beta, tt_ent[SCORE]) # type: ignore
-        if alpha >= beta:
-            if is_root:
-                state.move_from = tt_ent[FROM]
-                state.move_to = tt_ent[TO]
-            return tt_ent[SCORE] # type: ignore
-        
-    if depth <= 0 or is_end(state.end_state, state.board_state):
-        return evaluate(for_player, state.end_state, state.board_state)
-    
-    from_best = tt_ent[FROM]; to_best = tt_ent[TO]
-    if tt_hit and tt_ent[HEIGHT] >= 0:
-        is_capture = is_capt(for_player, from_best, to_best, state.board_state)
-        make_or_unmake(is_capture, False, for_player, from_best, to_best, state.board_state)
-        decrease = 0 if num_moves <= 1 or (depth <= 1 and is_capture) else 1
-        score = -ab_search(False, 1 - for_player, depth - decrease, -beta, -alpha, state)
-        make_or_unmake(is_capture, True, for_player, from_best, to_best, state.board_state)
-
-        if score >= beta:
-            flag = FINAL
-            if score <= alpha:
-                flag = UBOUND
-            if score >= beta:
-                flag = LBOUND
-            if tt_ent[HEIGHT] <= depth or tt_ent[AGE] <= state.age:
-                state.writes += 1
-                write_tt(tt_idx, tt_hash, from_best, to_best, score, flag, depth, age, for_player, state.table()) # type: ignore
-            if is_root:
-                state.move_from = from_best
-                state.move_to = to_best
-            return score
-
     score = -inf
     for i in range(num_moves):
-        if not tt_hit or legal != i:
-            move_from = moves[i, 0]; move_to = moves[i, 1]
-            is_capture = is_capt(for_player, move_from, move_to, state.board_state)
-            make_or_unmake(is_capture, False, for_player, move_from, move_to, state.board_state)
-            decrease = 0 if num_moves <= 1 or (depth <= 1 and is_capture) else 1
-            value = -ab_search(False, 1 - for_player, depth - decrease, -beta, -max(alpha, score), state)
-            make_or_unmake(is_capture, True, for_player, move_from, move_to, state.board_state)
+        move_from = moves[i, 0]; move_to = moves[i, 1]
+        is_capture = is_capt(for_player, move_from, move_to, state.board_state)
+        make_or_unmake(is_capture, False, for_player, move_from, move_to, state.board_state)
+        decrease = 0 if num_moves <= 1 or (depth <= 1 and is_capture) else 1
+        value = -ab_search(False, 1 - for_player, depth - decrease, -beta, -max(alpha, score), state)
+        make_or_unmake(is_capture, True, for_player, move_from, move_to, state.board_state)
 
-            if value > score:
-                score = value
+        if value > score:
+            score = value
 
-                if is_root:
-                    state.move_from = move_from
-                    state.move_to = move_to
+            if is_root:
+                state.move_from = move_from
+                state.move_to = move_to
 
-                if score >= beta:
-                    flag = FINAL
-                    if score <= alpha:
-                        flag = UBOUND
-                    if score >= beta:
-                        flag = LBOUND
-                    if tt_ent[HEIGHT] <= depth or tt_ent[AGE] < state.age:
-                        state.writes += 1
-                        write_tt(tt_idx, tt_hash, move_from, move_to, score, flag, depth, age, for_player, state.table()) # type: ignore
-                    break
+        if score >= beta:
+            break
 
     return score
 
@@ -389,45 +335,3 @@ def simple(game: Engine, max_depth: int = 3) -> tuple[float, tuple[YX, YX], Stat
         score = from_root(game.wrt, max_depth, state)
     age += 1
     return score, (state.move_from, state.move_to), Stats(int(state.nodes), int(state.hits), int(state.writes), int(state.age))
-    
-
-# NOTE: This is not working properly.
-def iterative_deepening(game: Engine, max_time: float, max_depth: int) -> tuple[float, tuple[YX, YX], Stats]:
-    assert table is not None
-    assert r_ply is not None
-    assert r_mat is not None
-    global age
-    game = deepcopy(game)
-    state = SearchState(np.empty((2,), dtype=np.int8), np.empty((2,), dtype=np.int8), 
-                        game.end, game.brd, 
-                        r_ply, r_mat, table,
-                        age)
-    
-    # Initialize with a random legal move
-    num_moves, moves = branches(game.wrt, game.brd)
-    if num_moves > 0:
-        random_index = np.random.randint(0, num_moves)
-        move = (moves[random_index, 0].copy(), moves[random_index, 1].copy())
-    else:
-        move = (np.empty((2,), dtype=np.int8), np.empty((2,), dtype=np.int8))
-    
-    score = nan
-    start_time = time.time()
-    last_depth = -1
-    
-    for depth in range(1, max_depth + 1):
-        if time.time() - start_time >= max_time:
-            break
-
-        last_depth = depth
-        
-        if game.wins is None:
-            score = from_root(game.wrt, depth, state)
-            move = (state.move_from.copy(), state.move_to.copy())
-        
-        # Check if we've found a winning move using np.isclose
-        if np.isclose(abs(score), 100, atol=1e-6):
-            break
-    
-    age += 1
-    return score, move, Stats(int(state.nodes), int(state.hits), int(state.writes), int(state.age), last_depth)

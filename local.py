@@ -10,7 +10,6 @@ from pydantic import BaseModel
 from jinja2 import Template
 from getch import pause # type: ignore
 from typing_extensions import Self
-from tables import encode_board
 
 import pickle as pkl
 import json
@@ -193,11 +192,6 @@ def main():
         bot.reset(game.tts)
         print(header.render(player=wrt_as_str(game.state.wrt)))
         clock = pyg.time.Clock()
-        hsh = encode_board(game.state.wrt, game.state.brd, bot.r_ply, bot.r_mat)
-        print(f'Board hash: {hsh}')
-        print(f'Board index: {hsh % game.tts}')
-        print(bot.standardize_state(1, game.state.brd))
-        print(f'P1 score: {bot.evaluate(1, game.state.end, game.state.brd)}')
         while game.run:
             assert 0 <= len(game.frto) <= 2, f'yo, why are you moving {len(game.frto)} steps in one turn?!'
             draw_game(game)
@@ -241,13 +235,6 @@ def main():
                     print(action.render(action='move'))
                     print(move.render(fr=game.frto[0], to=game.frto[1]))
                     print(header.render(player=wrt_as_str(game.state.wrt)))
-
-                    hsh = encode_board(game.state.wrt, game.state.brd, bot.r_ply, bot.r_mat)
-                    print(f'Board hash: {hsh}')
-                    print(f'Board index: {hsh % game.tts}')
-                    print(bot.standardize_state(1, game.state.brd))
-                    print(f'P1 score: {bot.evaluate(1, game.state.end, game.state.brd)}')
-                    print(f'P1 score: {bot.evaluate(1, game.state.end, game.state.brd)}')
                 game.frto.clear()
     finally:
         pyg.quit()
