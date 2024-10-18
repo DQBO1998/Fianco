@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from jinja2 import Template
 from getch import pause # type: ignore
 from typing_extensions import Self
+from tables import encode_board
 
 import pickle as pkl
 import json
@@ -19,7 +20,7 @@ import fianco as fnc
 import bot2 as bot
 
 
-Suggestion: TypeAlias = tuple[float, float, tuple[fnc.YX, fnc.YX]]
+Suggestion: TypeAlias = tuple[float, float, bot.Stats, tuple[fnc.YX, fnc.YX]]
 
 
 def yx2chss(y: int, x: int) -> str:
@@ -32,6 +33,8 @@ def yx2chss(y: int, x: int) -> str:
 
 class Settings(BaseModel):
    ply: int
+   tts: int
+   mxt: int
 
 
 def load_stng() -> Settings:
@@ -44,6 +47,12 @@ action = Template('action: {{ action }}')
 result = Template('result: {{ result }}')
 stats = Template(dedent("""ply:     {{ ply }} (ply)
 Δt:     {{ delta }} (seconds)
+nc:     {{ nodes }} (nodes)
+nc/Δt:  {{ nodes / (delta + 1e-15) }} (nodes / seconds)
+hits:   {{ hits }} (TT hits)
+writes: {{ writes }} (TT writes)
+age:    {{ age }} (iteration)
+depth:  {{ depth }} (max. depth)
 vl:     {{ value }}"""))
 move = Template('from {{ fr }} to {{ to }}')
 
@@ -63,6 +72,8 @@ class Game:
                                                                                                   '◡', 
                                                                                                   '◟'])))))
     ply: int = field(default_factory=lambda: load_stng().ply)
+    tts: int = field(default_factory=lambda: load_stng().tts)
+    mxt: int = field(default_factory=lambda: load_stng().mxt)
 
     def to_disk(self) -> Self:
         with open('game.pkl', 'wb') as file:
@@ -165,11 +176,12 @@ def draw_game(game: Game) -> None:
     pyg.display.flip()
 
 
-def suggest(game: Game, dpth: int) -> Suggestion:
+def suggest(game: Game) -> Suggestion:
     t0 = time()
-    vl, frto = bot.think(game.state, dpth)
+    #vl, frto, stats = bot.iterative_deepening(game.state, game.mxt, game.ply)
+    vl, frto, stats = bot.simple(game.state, game.ply)
     t1 = time()
-    return (t1 - t0), vl, frto
+    return (t1 - t0), vl, stats, frto
 
 
 def main():
@@ -177,8 +189,15 @@ def main():
     try:
         game = Game().from_disk()
         print(f'bots will search {game.ply}-ply')
+        print(f'transposition tables size: {game.tts}')
+        bot.reset(game.tts)
         print(header.render(player=wrt_as_str(game.state.wrt)))
         clock = pyg.time.Clock()
+        hsh = encode_board(game.state.wrt, game.state.brd, bot.r_ply, bot.r_mat)
+        print(f'Board hash: {hsh}')
+        print(f'Board index: {hsh % game.tts}')
+        print(bot.standardize_state(1, game.state.brd))
+        print(f'P1 score: {bot.evaluate(1, game.state.end, game.state.brd)}')
         while game.run:
             assert 0 <= len(game.frto) <= 2, f'yo, why are you moving {len(game.frto)} steps in one turn?!'
             draw_game(game)
@@ -189,6 +208,7 @@ def main():
                     game.run = False
                 elif ev.type == pyg.KEYDOWN and ev.key == pyg.K_r and kmods & pyg.KMOD_CTRL:
                     print(action.render(action='reset'))
+                    #bot.reset()
                     game.auto = None
                     game = Game()
                     print(header.render(player=wrt_as_str(game.state.wrt)))
@@ -199,7 +219,7 @@ def main():
                         game.auto = None
                 elif ev.type == pyg.KEYDOWN and ev.key == pyg.K_x and kmods & pyg.KMOD_CTRL:
                     if game.auto is None:
-                        game.auto = suggest(game, game.ply)
+                        game.auto = suggest(game)
                 elif ev.type == pyg.MOUSEBUTTONDOWN:
                     if ev.button == pyg.BUTTON_RIGHT:
                         game.frto.clear()
@@ -208,9 +228,9 @@ def main():
                         cursor = get_cursor(fac_y, fac_x)
                         game.frto.append(cursor)
             if game.auto is not None:
-                Δt, vl, frto = game.auto
+                Δt, vl, nchits, frto = game.auto
                 game.frto.extend(frto)
-                print(stats.render(delta=Δt, value=vl, ply=game.ply))
+                print(stats.render(delta=Δt, value=vl, nodes=nchits.nodes, hits=nchits.hits, ply=game.ply, age=nchits.age, writes=nchits.writes, depth=nchits.depth))
                 game.auto = None
             while len(game.frto) > 2:
                 game.frto.pop()
@@ -221,6 +241,13 @@ def main():
                     print(action.render(action='move'))
                     print(move.render(fr=game.frto[0], to=game.frto[1]))
                     print(header.render(player=wrt_as_str(game.state.wrt)))
+
+                    hsh = encode_board(game.state.wrt, game.state.brd, bot.r_ply, bot.r_mat)
+                    print(f'Board hash: {hsh}')
+                    print(f'Board index: {hsh % game.tts}')
+                    print(bot.standardize_state(1, game.state.brd))
+                    print(f'P1 score: {bot.evaluate(1, game.state.end, game.state.brd)}')
+                    print(f'P1 score: {bot.evaluate(1, game.state.end, game.state.brd)}')
                 game.frto.clear()
     finally:
         pyg.quit()
