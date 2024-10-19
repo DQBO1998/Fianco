@@ -204,36 +204,14 @@ def behind_last_row(board: NDArray[Any]) -> bool:
 
 
 @nb.njit # type: ignore
-def is_safe(y: int, x: int, board: NDArray[Any]) -> bool:
-    sides = 0
-    for dx in (-1, +1):
-        if (0 <= y + 1 < board.shape[0]) and (0 <= x + dx < board.shape[1]):
-            if board[y + 1, x + dx] != 0:
-                sides += 1
-        else:
-            sides += 1
-    if sides == 2:
-        return True
-    return False
-
-
-@nb.njit # type: ignore
-def count_safe(board: NDArray[Any]) -> int:
-    count = 0
+def by_location(board: NDArray[Any]) -> float:
+    h_weights = np.array([2, 1, 1.5, 1.5, 3, 1.5, 1.5, 1, 2])
+    v_weights = np.array([0, 1, 0.5, 3, 3. / 2., 5, 5. / 2., 7, 7 / 2.])
+    total = 0.
     for y in range(board.shape[0]):
         for x in range(board.shape[1]):
             if board[y, x] > 0:
-                count += is_safe(y, x, board)
-    return count
-
-
-@nb.njit # type: ignore
-def forward(board: NDArray[Any]) -> int:
-    total = 0
-    for y in range(board.shape[0]):
-        for x in range(board.shape[1]):
-            if board[y, x] > 0:
-                total += 9 - y
+                total += h_weights[x] + v_weights[v_weights.shape[0] - y - 1]
     return total
 
 
@@ -245,12 +223,9 @@ def evaluate(for_player: int, end_state: Mat, board_state: Mat) -> float:
                 return 10000.
             return -10000.
     polar = standardize_state(for_player, board_state)
-    if behind_last_row(polar):
-        return -10000.
     material_difference = polar.sum() / pieces
-    safe_pieces = count_safe(polar) / pieces
-    forwardness = forward(polar) / pieces
-    return 50. * material_difference + safe_pieces + forwardness
+    position_values = by_location(polar) / pieces
+    return 20. * material_difference + position_values
 
 
 @nb.njit # type: ignore
@@ -273,22 +248,22 @@ def is_legal(num_moves: int, move_from: YX, move_to: YX, moves: NDArray[number])
 @nb.njit # type: ignore
 def ab_search(is_root: bool, for_player: int, depth: int, alpha: float, beta: float, state: SearchState) -> float:
     state.nodes += 1
-        
-    if depth <= 0 or is_end(state.end_state, state.board_state):
-        return evaluate(for_player, state.end_state, state.board_state)
 
     num_moves, moves = branches(for_player, state.board_state)
     if is_root and num_moves == 1:
         state.move_from = moves[0, 0]
         state.move_to = moves[0, 1]
         return nan
+        
+    if depth <= 0 or is_end(state.end_state, state.board_state):
+        return evaluate(for_player, state.end_state, state.board_state)
 
     score = -inf
     for i in range(num_moves):
         move_from = moves[i, 0]; move_to = moves[i, 1]
         is_capture = is_capt(for_player, move_from, move_to, state.board_state)
         make_or_unmake(is_capture, False, for_player, move_from, move_to, state.board_state)
-        decrease = 0 if num_moves <= 1 or (depth <= 1 and is_capture) else 1
+        decrease = 0 if depth <= 1 and is_capture else 1
         value = -ab_search(False, 1 - for_player, depth - decrease, -beta, -max(alpha, score), state)
         make_or_unmake(is_capture, True, for_player, move_from, move_to, state.board_state)
 

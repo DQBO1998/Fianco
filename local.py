@@ -16,7 +16,7 @@ import json
 import numpy as np
 import pygame as pyg
 import fianco as fnc
-import bot2 as bot
+import bot3 as bot
 
 
 Suggestion: TypeAlias = tuple[float, float, bot.Stats, tuple[fnc.YX, fnc.YX]]
