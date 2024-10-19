@@ -1,0 +1,17 @@
+name: fnc
+channels:
+  - defaults
+dependencies:
+  - numba
+  - numpy
+  - pip
+  - pillow
+  - pydantic
+  - jinja2
+  - tqdm
+  - scikit-learn
+  - ipykernel
+  - matplotlib
+  - scipy
+  - pyyaml
+  - conda-forge::optuna

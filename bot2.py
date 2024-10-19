@@ -292,7 +292,7 @@ def ab_search(is_root: bool, for_player: int, depth: int, alpha: float, beta: fl
                 flag = UBOUND
             if score >= beta:
                 flag = LBOUND
-            if tt_ent[HEIGHT] <= depth or tt_ent[AGE] <= state.age:
+            if tt_ent[HEIGHT] <= depth or tt_ent[AGE] < state.age:
                 state.writes += 1
                 write_tt(tt_idx, tt_hash, from_best, to_best, score, flag, depth, age, for_player, state.table()) # type: ignore
             if is_root:
